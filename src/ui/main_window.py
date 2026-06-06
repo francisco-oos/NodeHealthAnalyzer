@@ -1,4 +1,5 @@
 import pandas as pd
+from datetime import datetime
 
 from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
@@ -13,6 +14,17 @@ from PySide6.QtWidgets import (
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
+)
+
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter, landscape
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.platypus import (
+    SimpleDocTemplate,
+    Paragraph,
+    Spacer,
+    Table,
+    TableStyle,
 )
 
 from src.database.database import clear_database
@@ -48,10 +60,12 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.import_button)
 
         self.export_excel_button = QPushButton("Export Excel")
-        self.export_excel_button.clicked.connect(
-            self.export_excel
-        )
+        self.export_excel_button.clicked.connect(self.export_excel)
         layout.addWidget(self.export_excel_button)
+
+        self.export_pdf_button = QPushButton("Export PDF")
+        self.export_pdf_button.clicked.connect(self.export_pdf)
+        layout.addWidget(self.export_pdf_button)
 
         self.nodes_label = QLabel("Nodes Loaded: 0")
         layout.addWidget(self.nodes_label)
@@ -98,9 +112,7 @@ class MainWindow(QMainWindow):
             ]
         )
 
-        self.table.cellDoubleClicked.connect(
-            self.open_node_detail
-        )
+        self.table.cellDoubleClicked.connect(self.open_node_detail)
 
         layout.addWidget(self.table)
         central_widget.setLayout(layout)
@@ -296,6 +308,123 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(
                 self,
                 "Export Excel Error",
+                str(e)
+            )
+
+    def export_pdf(self):
+        filtered_nodes = self.get_filtered_nodes()
+
+        if not filtered_nodes:
+            QMessageBox.warning(
+                self,
+                "Export PDF",
+                "No data available to export."
+            )
+            return
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save PDF Report",
+            "node_health_report.pdf",
+            "PDF Files (*.pdf)"
+        )
+
+        if not file_path:
+            return
+
+        try:
+            doc = SimpleDocTemplate(
+                file_path,
+                pagesize=landscape(letter)
+            )
+
+            styles = getSampleStyleSheet()
+            elements = []
+
+            title = Paragraph(
+                "Node Health Analyzer Report",
+                styles["Title"]
+            )
+            elements.append(title)
+            elements.append(Spacer(1, 12))
+
+            generated_at = datetime.now().strftime(
+                "%d/%m/%Y %H:%M"
+            )
+
+            summary = Paragraph(
+                f"Generated: {generated_at}<br/>"
+                f"Total Nodes: {len(self.nodes)}<br/>"
+                f"Filtered Nodes: {len(filtered_nodes)}<br/>"
+                f"{self.health_summary_label.text()}",
+                styles["Normal"]
+            )
+
+            elements.append(summary)
+            elements.append(Spacer(1, 12))
+
+            table_data = [
+                [
+                    "Node",
+                    "Records",
+                    "Voltage",
+                    "Charge",
+                    "Acq Type",
+                    "GPS",
+                    "Temp",
+                    "Health",
+                    "Class",
+                ]
+            ]
+
+            for node in filtered_nodes:
+                table_data.append(
+                    [
+                        node.get("serial_number", ""),
+                        node.get("records", ""),
+                        node.get("voltage", ""),
+                        node.get("charge", ""),
+                        node.get("acq_type", ""),
+                        node.get("gps_quality", ""),
+                        node.get("temperature", ""),
+                        node.get("health_score", ""),
+                        node.get("classification", ""),
+                    ]
+                )
+
+            table = Table(
+                table_data,
+                repeatRows=1
+            )
+
+            table.setStyle(
+                TableStyle(
+                    [
+                        ("BACKGROUND", (0, 0), (-1, 0), colors.darkblue),
+                        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                        ("FONTSIZE", (0, 0), (-1, -1), 8),
+                        ("BOTTOMPADDING", (0, 0), (-1, 0), 8),
+                        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                    ]
+                )
+            )
+
+            elements.append(table)
+
+            doc.build(elements)
+
+            QMessageBox.information(
+                self,
+                "Export PDF",
+                "PDF report exported successfully."
+            )
+
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Export PDF Error",
                 str(e)
             )
 
