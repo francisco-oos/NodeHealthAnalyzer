@@ -6,6 +6,8 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QVBoxLayout,
     QWidget,
+    QComboBox,
+    QPushButton,
 )
 
 from src.database.database import get_records_by_serial
@@ -47,6 +49,23 @@ class NodeDetailWindow(QMainWindow):
         )
         layout.addWidget(summary)
 
+        self.acq_filter = QComboBox()
+        self.acq_filter.addItems(
+            [
+                "All",
+                "Seismic",
+                "BIT",
+                "No acquisition",
+            ]
+        )
+        layout.addWidget(self.acq_filter)
+
+        self.apply_filter_button = QPushButton("Apply Filter")
+        self.apply_filter_button.clicked.connect(
+            self.load_voltage_chart
+        )
+        layout.addWidget(self.apply_filter_button)
+
         self.web_view = QWebEngineView()
         layout.addWidget(self.web_view)
 
@@ -59,6 +78,15 @@ class NodeDetailWindow(QMainWindow):
 
         if df.empty:
             self.web_view.setHtml("<h3>No records found</h3>")
+            return
+
+        selected_acq = self.acq_filter.currentText()
+
+        if selected_acq != "All":
+            df = df[df["acq_type"] == selected_acq]
+
+        if df.empty:
+            self.web_view.setHtml("<h3>No records for selected filter</h3>")
             return
 
         fig = go.Figure()
