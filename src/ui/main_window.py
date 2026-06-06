@@ -1,3 +1,4 @@
+from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
     QFileDialog,
     QLabel,
@@ -43,9 +44,9 @@ class MainWindow(QMainWindow):
 
         self.nodes_label = QLabel("Nodes Loaded: 0")
         layout.addWidget(self.nodes_label)
-        
+
         self.health_summary_label = QLabel(
-        "Excellent: 0 | Good: 0 | Warning: 0 | Critical: 0"
+            "Excellent: 0 | Good: 0 | Warning: 0 | Critical: 0"
         )
         layout.addWidget(self.health_summary_label)
 
@@ -86,10 +87,15 @@ class MainWindow(QMainWindow):
         self.table.clearContents()
         self.table.setRowCount(0)
         self.nodes_label.setText("Nodes Loaded: 0")
-        #BORRAR PARA PRODUCCION
+        self.health_summary_label.setText(
+            "Excellent: 0 | Good: 0 | Warning: 0 | Critical: 0"
+        )
+
+        # BORRAR PARA PRODUCCION
         clear_database()
+
         self.nodes = self.importer.load_folder(folder)
-        #BORRAR PARA PRODUCCION
+
         self.update_table()
 
     def update_table(self):
@@ -99,9 +105,9 @@ class MainWindow(QMainWindow):
         self.nodes_label.setText(
             f"Nodes Loaded: {len(self.nodes)}"
         )
-        
+
         excellent = sum(
-             1 for node in self.nodes
+            1 for node in self.nodes
             if node.get("classification") == "Excellent"
         )
 
@@ -113,23 +119,31 @@ class MainWindow(QMainWindow):
         warning = sum(
             1 for node in self.nodes
             if node.get("classification") == "Warning"
-        )      
+        )
 
         critical = sum(
-         1 for node in self.nodes
-         if node.get("classification") == "Critical"
+            1 for node in self.nodes
+            if node.get("classification") == "Critical"
         )
 
         self.health_summary_label.setText(
             f"Excellent: {excellent} | "
-         f"Good: {good} | "
-          f"Warning: {warning} | "
-         f"Critical: {critical}"
+            f"Good: {good} | "
+            f"Warning: {warning} | "
+            f"Critical: {critical}"
         )
 
         self.table.setRowCount(len(self.nodes))
 
+        classification_colors = {
+            "Excellent": QColor(0, 180, 0),
+            "Good": QColor(0, 120, 255),
+            "Warning": QColor(255, 165, 0),
+            "Critical": QColor(255, 60, 60),
+        }
+
         for row, node in enumerate(self.nodes):
+
             values = [
                 node.get("serial_number", ""),
                 node.get("records", ""),
@@ -143,11 +157,26 @@ class MainWindow(QMainWindow):
                 node.get("classification", ""),
             ]
 
+            classification = node.get("classification", "")
+            classification_color = classification_colors.get(
+                classification,
+                QColor(255, 255, 255)
+            )
+
             for column, value in enumerate(values):
+                item = QTableWidgetItem(str(value))
+
+                # Mejora visual:
+                # Sólo coloreamos la clasificación y el Health Score.
+                # El resto queda limpio y legible.
+                if column in [8, 9]:
+                    item.setForeground(classification_color)
+                    item.setFont(QFont("", -1, QFont.Bold))
+
                 self.table.setItem(
                     row,
                     column,
-                    QTableWidgetItem(str(value))
+                    item
                 )
 
         self.table.resizeColumnsToContents()
