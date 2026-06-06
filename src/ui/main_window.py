@@ -1,9 +1,12 @@
+import pandas as pd
+
 from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
     QFileDialog,
     QLabel,
     QLineEdit,
     QMainWindow,
+    QMessageBox,
     QPushButton,
     QComboBox,
     QTableWidget,
@@ -43,6 +46,12 @@ class MainWindow(QMainWindow):
         self.import_button = QPushButton("Import Folder")
         self.import_button.clicked.connect(self.import_folder)
         layout.addWidget(self.import_button)
+
+        self.export_excel_button = QPushButton("Export Excel")
+        self.export_excel_button.clicked.connect(
+            self.export_excel
+        )
+        layout.addWidget(self.export_excel_button)
 
         self.nodes_label = QLabel("Nodes Loaded: 0")
         layout.addWidget(self.nodes_label)
@@ -231,6 +240,64 @@ class MainWindow(QMainWindow):
                 )
 
         self.table.resizeColumnsToContents()
+
+    def export_excel(self):
+        filtered_nodes = self.get_filtered_nodes()
+
+        if not filtered_nodes:
+            QMessageBox.warning(
+                self,
+                "Export Excel",
+                "No data available to export."
+            )
+            return
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save Excel Report",
+            "node_health_report.xlsx",
+            "Excel Files (*.xlsx)"
+        )
+
+        if not file_path:
+            return
+
+        rows = []
+
+        for node in filtered_nodes:
+            rows.append({
+                "Node": node.get("serial_number", ""),
+                "Records": node.get("records", ""),
+                "Voltage (mV)": node.get("voltage", ""),
+                "Charge (%)": node.get("charge", ""),
+                "Acq Type": node.get("acq_type", ""),
+                "GPS (%)": node.get("gps_quality", ""),
+                "Temp (°C)": node.get("temperature", ""),
+                "Last Time": node.get("last_time", ""),
+                "Health Score": node.get("health_score", ""),
+                "Classification": node.get("classification", ""),
+            })
+
+        df = pd.DataFrame(rows)
+
+        try:
+            df.to_excel(
+                file_path,
+                index=False
+            )
+
+            QMessageBox.information(
+                self,
+                "Export Excel",
+                "Excel report exported successfully."
+            )
+
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Export Excel Error",
+                str(e)
+            )
 
     def open_node_detail(self, row, column):
         filtered_nodes = self.get_filtered_nodes()
