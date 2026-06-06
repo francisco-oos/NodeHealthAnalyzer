@@ -77,6 +77,7 @@ class MainWindow(QMainWindow):
         self.title_label = QLabel("Node Health Analyzer")
         layout.addWidget(self.title_label)
 
+
         self.import_button = QPushButton("Import Folder")
         self.import_button.clicked.connect(self.import_folder)
         layout.addWidget(self.import_button)
@@ -152,7 +153,9 @@ class MainWindow(QMainWindow):
 
         layout.addWidget(self.table)
         central_widget.setLayout(layout)
-
+        self.about_button = QPushButton("About")
+        self.about_button.clicked.connect(self.show_about)
+        layout.addWidget(self.about_button)
     def import_folder(self):
         """
         Import all CSV files from a selected folder.
@@ -595,3 +598,17 @@ class MainWindow(QMainWindow):
         comparison_window.show()
 
         self.comparison_windows.append(comparison_window)
+    def show_about(self):
+        QMessageBox.information(
+        self,
+        "About Node Health Analyzer",
+        "Node Health Analyzer\n\n"
+        "Version: 1.0.0 Release Candidate\n\n"
+        "Desktop application for Sercel seismic node "
+        "battery health monitoring, CSV analysis, node comparison, "
+        "and operational reporting.\n\n"
+        "Developed by: Alvarado Leyva\n"
+        "Copyright © 2026\n\n"
+        "Technologies:\n"
+        "Python, PySide6, Pandas, Plotly, SQLite, ReportLab"
+    )
