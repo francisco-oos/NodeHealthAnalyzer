@@ -1,6 +1,6 @@
 from pathlib import Path
 import pandas as pd
-
+from src.analysis.health_score import calculate_health_score, classify_node
 
 class CSVImporter:
 
@@ -52,6 +52,13 @@ class CSVImporter:
                     gps_quality = latest_row.get("GPS Quality (%)", "")
                     temperature = latest_row.get("Temperature (°C)", "")
                     last_time = latest_row.get("Start Local Time", "")
+                    health_score = calculate_health_score(
+                        voltage,
+                        charge,
+                        gps_quality
+                    )
+
+                    classification = classify_node(health_score)
                 else:
                     voltage = ""
                     charge = ""
@@ -59,6 +66,8 @@ class CSVImporter:
                     gps_quality = ""
                     temperature = ""
                     last_time = ""
+                    health_score = 0
+                    classification = "Unknown"
 
                 nodes.append({
                     "serial_number": csv_file.stem,
@@ -70,6 +79,8 @@ class CSVImporter:
                     "temperature": temperature,
                     "last_time": last_time,
                     "file_path": str(csv_file),
+                    "health_score": health_score,
+                    "classification": classification,
                 })
 
             except Exception as e:

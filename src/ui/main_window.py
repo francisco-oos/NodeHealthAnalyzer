@@ -42,7 +42,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.nodes_label)
 
         self.table = QTableWidget()
-        self.table.setColumnCount(8)
+        self.table.setColumnCount(10)
         self.table.setHorizontalHeaderLabels(
             [
                 "Node",
@@ -53,6 +53,8 @@ class MainWindow(QMainWindow):
                 "GPS (%)",
                 "Temp (°C)",
                 "Last Time",
+                "Health Score",
+                "Classification",
             ]
         )
 
@@ -97,6 +99,8 @@ class MainWindow(QMainWindow):
                 node.get("gps_quality", ""),
                 node.get("temperature", ""),
                 node.get("last_time", ""),
+                node.get("health_score", ""),
+                node.get("classification", ""),
             ]
 
             for column, value in enumerate(values):
