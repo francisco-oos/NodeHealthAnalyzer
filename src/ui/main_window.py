@@ -75,6 +75,12 @@ class MainWindow(QMainWindow):
         )
         layout.addWidget(self.health_summary_label)
 
+        self.kpi_label = QLabel(
+            "Average Voltage: 0 mV | Average Charge: 0 %"
+        )   
+
+        layout.addWidget(self.kpi_label)
+
         self.search_box = QLineEdit()
         self.search_box.setPlaceholderText("Search Node...")
         self.search_box.textChanged.connect(self.update_table)
@@ -196,6 +202,39 @@ class MainWindow(QMainWindow):
             f"Critical: {critical}"
         )
 
+    def update_kpis(self):
+        if not self.nodes:
+            self.kpi_label.setText(
+            "Average Voltage: 0 mV | Average Charge: 0 %"
+        )
+            return
+
+        df = pd.DataFrame(self.nodes)
+
+        df["voltage"] = pd.to_numeric(
+        df["voltage"],
+        errors="coerce"
+         )
+
+        df["charge"] = pd.to_numeric(
+        df["charge"],
+        errors="coerce"
+        )
+
+        avg_voltage = df["voltage"].mean()
+        avg_charge = df["charge"].mean()
+
+        if pd.isna(avg_voltage):
+            avg_voltage = 0
+
+        if pd.isna(avg_charge):
+            avg_charge = 0
+
+        self.kpi_label.setText(
+        f"Average Voltage: {avg_voltage:.0f} mV | "
+        f"Average Charge: {avg_charge:.1f} %"
+        )
+        
     def update_table(self):
         self.table.clearContents()
         self.table.setRowCount(0)
@@ -205,6 +244,7 @@ class MainWindow(QMainWindow):
         )
 
         self.update_health_summary()
+        self.update_kpis()
 
         filtered_nodes = self.get_filtered_nodes()
 
