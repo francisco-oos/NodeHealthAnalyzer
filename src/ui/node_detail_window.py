@@ -266,13 +266,20 @@ class NodeDetailWindow(QMainWindow):
             errors="coerce"
         )
         if metric_column == "charge_percent":
-             df = df[
-        df["charge_percent"] > 0
-        ]
+            df = df[
+                (df["charge_percent"] > 0)
+                &
+                (df["acq_type"] != "No acquisition")
+    ]
+
+        if metric_column == "gps_quality":
+            df = df[
+                df["acq_type"] != "No acquisition"
+            ]
         df = df.dropna(
             subset=["timestamp", metric_column]
         )
-        
+
         if metric_column == "charge_percent":
             df = df[
                     df["charge_percent"] > 0
