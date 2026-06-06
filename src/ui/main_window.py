@@ -2,8 +2,10 @@ from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
     QFileDialog,
     QLabel,
+    QLineEdit,
     QMainWindow,
     QPushButton,
+    QComboBox,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -50,6 +52,26 @@ class MainWindow(QMainWindow):
         )
         layout.addWidget(self.health_summary_label)
 
+        self.search_box = QLineEdit()
+        self.search_box.setPlaceholderText("Search Node...")
+        self.search_box.textChanged.connect(self.update_table)
+        layout.addWidget(self.search_box)
+
+        self.classification_filter = QComboBox()
+        self.classification_filter.addItems(
+            [
+                "All",
+                "Excellent",
+                "Good",
+                "Warning",
+                "Critical",
+            ]
+        )
+        self.classification_filter.currentTextChanged.connect(
+            self.update_table
+        )
+        layout.addWidget(self.classification_filter)
+
         self.table = QTableWidget()
         self.table.setColumnCount(10)
         self.table.setHorizontalHeaderLabels(
@@ -86,10 +108,14 @@ class MainWindow(QMainWindow):
         self.nodes = []
         self.table.clearContents()
         self.table.setRowCount(0)
+
         self.nodes_label.setText("Nodes Loaded: 0")
         self.health_summary_label.setText(
             "Excellent: 0 | Good: 0 | Warning: 0 | Critical: 0"
         )
+
+        self.search_box.clear()
+        self.classification_filter.setCurrentText("All")
 
         # BORRAR PARA PRODUCCION
         clear_database()
@@ -98,14 +124,30 @@ class MainWindow(QMainWindow):
 
         self.update_table()
 
-    def update_table(self):
-        self.table.clearContents()
-        self.table.setRowCount(0)
+    def get_filtered_nodes(self):
+        filtered_nodes = self.nodes
 
-        self.nodes_label.setText(
-            f"Nodes Loaded: {len(self.nodes)}"
-        )
+        search_text = self.search_box.text().strip()
 
+        if search_text:
+            filtered_nodes = [
+                node
+                for node in filtered_nodes
+                if search_text in node.get("serial_number", "")
+            ]
+
+        selected_classification = self.classification_filter.currentText()
+
+        if selected_classification != "All":
+            filtered_nodes = [
+                node
+                for node in filtered_nodes
+                if node.get("classification") == selected_classification
+            ]
+
+        return filtered_nodes
+
+    def update_health_summary(self):
         excellent = sum(
             1 for node in self.nodes
             if node.get("classification") == "Excellent"
@@ -133,7 +175,19 @@ class MainWindow(QMainWindow):
             f"Critical: {critical}"
         )
 
-        self.table.setRowCount(len(self.nodes))
+    def update_table(self):
+        self.table.clearContents()
+        self.table.setRowCount(0)
+
+        self.nodes_label.setText(
+            f"Nodes Loaded: {len(self.nodes)}"
+        )
+
+        self.update_health_summary()
+
+        filtered_nodes = self.get_filtered_nodes()
+
+        self.table.setRowCount(len(filtered_nodes))
 
         classification_colors = {
             "Excellent": QColor(0, 180, 0),
@@ -142,7 +196,7 @@ class MainWindow(QMainWindow):
             "Critical": QColor(255, 60, 60),
         }
 
-        for row, node in enumerate(self.nodes):
+        for row, node in enumerate(filtered_nodes):
 
             values = [
                 node.get("serial_number", ""),
@@ -166,9 +220,6 @@ class MainWindow(QMainWindow):
             for column, value in enumerate(values):
                 item = QTableWidgetItem(str(value))
 
-                # Mejora visual:
-                # Sólo coloreamos la clasificación y el Health Score.
-                # El resto queda limpio y legible.
                 if column in [8, 9]:
                     item.setForeground(classification_color)
                     item.setFont(QFont("", -1, QFont.Bold))
@@ -182,10 +233,12 @@ class MainWindow(QMainWindow):
         self.table.resizeColumnsToContents()
 
     def open_node_detail(self, row, column):
-        if row < 0 or row >= len(self.nodes):
+        filtered_nodes = self.get_filtered_nodes()
+
+        if row < 0 or row >= len(filtered_nodes):
             return
 
-        node_data = self.nodes[row]
+        node_data = filtered_nodes[row]
 
         detail_window = NodeDetailWindow(node_data)
         detail_window.show()
