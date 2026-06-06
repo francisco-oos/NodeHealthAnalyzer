@@ -43,6 +43,11 @@ class MainWindow(QMainWindow):
 
         self.nodes_label = QLabel("Nodes Loaded: 0")
         layout.addWidget(self.nodes_label)
+        
+        self.health_summary_label = QLabel(
+        "Excellent: 0 | Good: 0 | Warning: 0 | Critical: 0"
+        )
+        layout.addWidget(self.health_summary_label)
 
         self.table = QTableWidget()
         self.table.setColumnCount(10)
@@ -93,6 +98,33 @@ class MainWindow(QMainWindow):
 
         self.nodes_label.setText(
             f"Nodes Loaded: {len(self.nodes)}"
+        )
+        
+        excellent = sum(
+             1 for node in self.nodes
+            if node.get("classification") == "Excellent"
+        )
+
+        good = sum(
+            1 for node in self.nodes
+            if node.get("classification") == "Good"
+        )
+
+        warning = sum(
+            1 for node in self.nodes
+            if node.get("classification") == "Warning"
+        )      
+
+        critical = sum(
+         1 for node in self.nodes
+         if node.get("classification") == "Critical"
+        )
+
+        self.health_summary_label.setText(
+            f"Excellent: {excellent} | "
+         f"Good: {good} | "
+          f"Warning: {warning} | "
+         f"Critical: {critical}"
         )
 
         self.table.setRowCount(len(self.nodes))
