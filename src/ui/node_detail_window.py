@@ -1,5 +1,7 @@
+import pandas as pd
 import plotly.graph_objects as go
 
+from PySide6.QtCore import QDate
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (
     QLabel,
@@ -8,6 +10,8 @@ from PySide6.QtWidgets import (
     QWidget,
     QComboBox,
     QPushButton,
+    QDateEdit,
+    QHBoxLayout,
 )
 
 from src.database.database import get_records_by_serial
@@ -49,6 +53,30 @@ class NodeDetailWindow(QMainWindow):
         )
         layout.addWidget(summary)
 
+        date_layout = QHBoxLayout()
+
+        self.start_date = QDateEdit()
+        self.start_date.setCalendarPopup(True)
+        self.start_date.setDisplayFormat("dd/MM/yyyy")
+        self.start_date.setDate(
+            QDate.currentDate().addMonths(-1)
+        )
+
+        self.end_date = QDateEdit()
+        self.end_date.setCalendarPopup(True)
+        self.end_date.setDisplayFormat("dd/MM/yyyy")
+        self.end_date.setDate(
+            QDate.currentDate()
+        )
+
+        date_layout.addWidget(QLabel("Start Date"))
+        date_layout.addWidget(self.start_date)
+
+        date_layout.addWidget(QLabel("End Date"))
+        date_layout.addWidget(self.end_date)
+
+        layout.addLayout(date_layout)
+
         self.acq_filter = QComboBox()
         self.acq_filter.addItems(
             [
@@ -80,7 +108,35 @@ class NodeDetailWindow(QMainWindow):
             self.web_view.setHtml("<h3>No records found</h3>")
             return
 
+        df["timestamp"] = pd.to_datetime(
+            df["timestamp"],
+            dayfirst=True,
+            errors="coerce"
+        )
+
+        df = df.dropna(
+            subset=["timestamp", "voltage_mv"]
+        )
+
         selected_acq = self.acq_filter.currentText()
+
+        start_dt = pd.to_datetime(
+            self.start_date.date().toString("dd/MM/yyyy"),
+            dayfirst=True
+        )
+
+        end_dt = pd.to_datetime(
+            self.end_date.date().toString("dd/MM/yyyy"),
+            dayfirst=True
+        )
+
+        end_dt = end_dt + pd.Timedelta(days=1)
+
+        df = df[
+            (df["timestamp"] >= start_dt)
+            &
+            (df["timestamp"] < end_dt)
+        ]
 
         if selected_acq != "All":
             df = df[df["acq_type"] == selected_acq]
