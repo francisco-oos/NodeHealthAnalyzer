@@ -9,8 +9,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.importers.importer import CSVImporter
 from src.database.database import clear_database
+from src.importers.importer import CSVImporter
+from src.ui.node_detail_window import NodeDetailWindow
+
 
 class MainWindow(QMainWindow):
 
@@ -22,6 +24,7 @@ class MainWindow(QMainWindow):
 
         self.importer = CSVImporter()
         self.nodes = []
+        self.detail_windows = []
 
         self.setup_ui()
 
@@ -58,6 +61,10 @@ class MainWindow(QMainWindow):
             ]
         )
 
+        self.table.cellDoubleClicked.connect(
+            self.open_node_detail
+        )
+
         layout.addWidget(self.table)
         central_widget.setLayout(layout)
 
@@ -74,7 +81,9 @@ class MainWindow(QMainWindow):
         self.table.clearContents()
         self.table.setRowCount(0)
         self.nodes_label.setText("Nodes Loaded: 0")
+
         clear_database()
+
         self.nodes = self.importer.load_folder(folder)
 
         self.update_table()
@@ -111,3 +120,14 @@ class MainWindow(QMainWindow):
                 )
 
         self.table.resizeColumnsToContents()
+
+    def open_node_detail(self, row, column):
+        if row < 0 or row >= len(self.nodes):
+            return
+
+        node_data = self.nodes[row]
+
+        detail_window = NodeDetailWindow(node_data)
+        detail_window.show()
+
+        self.detail_windows.append(detail_window)
