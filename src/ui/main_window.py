@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.importers.importer import CSVImporter
-
+from src.database.database import clear_database
 
 class MainWindow(QMainWindow):
 
@@ -74,7 +74,7 @@ class MainWindow(QMainWindow):
         self.table.clearContents()
         self.table.setRowCount(0)
         self.nodes_label.setText("Nodes Loaded: 0")
-
+        clear_database()
         self.nodes = self.importer.load_folder(folder)
 
         self.update_table()

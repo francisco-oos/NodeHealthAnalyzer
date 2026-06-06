@@ -1,6 +1,10 @@
 from pathlib import Path
+
 import pandas as pd
+
 from src.analysis.health_score import calculate_health_score, classify_node
+from src.database.database import save_node_records
+
 
 class CSVImporter:
 
@@ -10,6 +14,8 @@ class CSVImporter:
 
         for csv_file in csv_files:
             try:
+                print(f"Procesando: {csv_file.name}")
+
                 df = pd.read_csv(csv_file, low_memory=False)
                 df.columns = df.columns.str.strip()
                 df = df.loc[:, ~df.columns.str.contains("^Unnamed")]
@@ -29,6 +35,28 @@ class CSVImporter:
                             df[column],
                             errors="coerce"
                         )
+
+                records_to_save = []
+
+                for _, row in df.iterrows():
+                    records_to_save.append({
+                        "timestamp": row.get("Start Local Time", ""),
+                        "voltage_mv": row.get("Int. Voltage (mV)", None),
+                        "charge_percent": row.get("Int. Charge (%)", None),
+                        "gps_quality": row.get("GPS Quality (%)", None),
+                        "temperature_c": row.get("Temperature (°C)", None),
+                        "acq_type": row.get("Acq. Type", ""),
+                    })
+
+                save_node_records(
+                    csv_file.stem,
+                    records_to_save
+                )
+
+                print(
+                    f"Guardado: {csv_file.name} - "
+                    f"{record_count} registros"
+                )
 
                 valid_df = df.dropna(
                     subset=["Int. Voltage (mV)", "Int. Charge (%)"]
@@ -52,6 +80,7 @@ class CSVImporter:
                     gps_quality = latest_row.get("GPS Quality (%)", "")
                     temperature = latest_row.get("Temperature (°C)", "")
                     last_time = latest_row.get("Start Local Time", "")
+
                     health_score = calculate_health_score(
                         voltage,
                         charge,
@@ -59,6 +88,7 @@ class CSVImporter:
                     )
 
                     classification = classify_node(health_score)
+
                 else:
                     voltage = ""
                     charge = ""
@@ -96,6 +126,8 @@ class CSVImporter:
                     "temperature": "",
                     "last_time": "",
                     "file_path": str(csv_file),
+                    "health_score": 0,
+                    "classification": "Unknown",
                 })
 
         return nodes
