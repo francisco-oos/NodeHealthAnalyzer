@@ -30,9 +30,21 @@ from reportlab.platypus import (
 from src.database.database import clear_database
 from src.importers.importer import CSVImporter
 from src.ui.node_detail_window import NodeDetailWindow
+from src.ui.node_comparison_window import NodeComparisonWindow
 
 
 class MainWindow(QMainWindow):
+    """
+    Main application window.
+
+    Responsibilities:
+    - Import Sercel CSV folders.
+    - Display loaded nodes in a dashboard table.
+    - Filter/search nodes.
+    - Export filtered results to Excel/PDF.
+    - Open node detail window.
+    - Open multi-node comparison window.
+    """
 
     def __init__(self):
         super().__init__()
@@ -41,12 +53,22 @@ class MainWindow(QMainWindow):
         self.resize(1200, 800)
 
         self.importer = CSVImporter()
+
+        # In-memory list of loaded node summaries.
         self.nodes = []
+
+        # Keep references to child windows.
+        # This prevents PySide from garbage-collecting opened windows.
         self.detail_windows = []
+        self.comparison_windows = []
 
         self.setup_ui()
 
     def setup_ui(self):
+        """
+        Build the main dashboard UI.
+        """
+
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
 
@@ -67,6 +89,12 @@ class MainWindow(QMainWindow):
         self.export_pdf_button.clicked.connect(self.export_pdf)
         layout.addWidget(self.export_pdf_button)
 
+        self.compare_button = QPushButton("Compare Nodes")
+        self.compare_button.clicked.connect(
+            self.open_node_comparison
+        )
+        layout.addWidget(self.compare_button)
+
         self.nodes_label = QLabel("Nodes Loaded: 0")
         layout.addWidget(self.nodes_label)
 
@@ -77,8 +105,7 @@ class MainWindow(QMainWindow):
 
         self.kpi_label = QLabel(
             "Average Voltage: 0 mV | Average Charge: 0 %"
-        )   
-
+        )
         layout.addWidget(self.kpi_label)
 
         self.search_box = QLineEdit()
@@ -118,12 +145,30 @@ class MainWindow(QMainWindow):
             ]
         )
 
-        self.table.cellDoubleClicked.connect(self.open_node_detail)
+        # Double click opens the node detail chart window.
+        self.table.cellDoubleClicked.connect(
+            self.open_node_detail
+        )
 
         layout.addWidget(self.table)
         central_widget.setLayout(layout)
 
     def import_folder(self):
+        """
+        Import all CSV files from a selected folder.
+
+        Current V1 behavior:
+        - The database is cleared before each import.
+        - This avoids duplicate records while we are developing/testing.
+
+        Future production behavior:
+        - Remove or disable clear_database().
+        - Replace with a smarter import strategy:
+          - avoid duplicates,
+          - update existing nodes,
+          - preserve historical campaigns.
+        """
+
         folder = QFileDialog.getExistingDirectory(
             self,
             "Select Folder"
@@ -140,11 +185,18 @@ class MainWindow(QMainWindow):
         self.health_summary_label.setText(
             "Excellent: 0 | Good: 0 | Warning: 0 | Critical: 0"
         )
+        self.kpi_label.setText(
+            "Average Voltage: 0 mV | Average Charge: 0 %"
+        )
 
         self.search_box.clear()
         self.classification_filter.setCurrentText("All")
 
-        # BORRAR PARA PRODUCCION
+        # DEVELOPMENT ONLY:
+        # Clears SQLite database before each import.
+        # Useful now because we reload the same test folders many times.
+        # Do NOT keep this behavior in production if historical data
+        # must be preserved.
         clear_database()
 
         self.nodes = self.importer.load_folder(folder)
@@ -152,6 +204,12 @@ class MainWindow(QMainWindow):
         self.update_table()
 
     def get_filtered_nodes(self):
+        """
+        Return nodes filtered by:
+        - serial number search
+        - classification dropdown
+        """
+
         filtered_nodes = self.nodes
 
         search_text = self.search_box.text().strip()
@@ -175,6 +233,10 @@ class MainWindow(QMainWindow):
         return filtered_nodes
 
     def update_health_summary(self):
+        """
+        Update count of nodes by classification.
+        """
+
         excellent = sum(
             1 for node in self.nodes
             if node.get("classification") == "Excellent"
@@ -203,22 +265,29 @@ class MainWindow(QMainWindow):
         )
 
     def update_kpis(self):
+        """
+        Update dashboard KPI averages.
+
+        These averages are calculated from the latest valid value
+        of each loaded node.
+        """
+
         if not self.nodes:
             self.kpi_label.setText(
-            "Average Voltage: 0 mV | Average Charge: 0 %"
-        )
+                "Average Voltage: 0 mV | Average Charge: 0 %"
+            )
             return
 
         df = pd.DataFrame(self.nodes)
 
         df["voltage"] = pd.to_numeric(
-        df["voltage"],
-        errors="coerce"
-         )
+            df["voltage"],
+            errors="coerce"
+        )
 
         df["charge"] = pd.to_numeric(
-        df["charge"],
-        errors="coerce"
+            df["charge"],
+            errors="coerce"
         )
 
         avg_voltage = df["voltage"].mean()
@@ -231,11 +300,15 @@ class MainWindow(QMainWindow):
             avg_charge = 0
 
         self.kpi_label.setText(
-        f"Average Voltage: {avg_voltage:.0f} mV | "
-        f"Average Charge: {avg_charge:.1f} %"
+            f"Average Voltage: {avg_voltage:.0f} mV | "
+            f"Average Charge: {avg_charge:.1f} %"
         )
-        
+
     def update_table(self):
+        """
+        Refresh the dashboard table using current filters.
+        """
+
         self.table.clearContents()
         self.table.setRowCount(0)
 
@@ -281,6 +354,8 @@ class MainWindow(QMainWindow):
             for column, value in enumerate(values):
                 item = QTableWidgetItem(str(value))
 
+                # Only Health Score and Classification are colored.
+                # This keeps the table readable in dark mode.
                 if column in [8, 9]:
                     item.setForeground(classification_color)
                     item.setFont(QFont("", -1, QFont.Bold))
@@ -294,6 +369,10 @@ class MainWindow(QMainWindow):
         self.table.resizeColumnsToContents()
 
     def export_excel(self):
+        """
+        Export the currently filtered dashboard table to Excel.
+        """
+
         filtered_nodes = self.get_filtered_nodes()
 
         if not filtered_nodes:
@@ -352,6 +431,10 @@ class MainWindow(QMainWindow):
             )
 
     def export_pdf(self):
+        """
+        Export the currently filtered dashboard table to a PDF report.
+        """
+
         filtered_nodes = self.get_filtered_nodes()
 
         if not filtered_nodes:
@@ -396,7 +479,8 @@ class MainWindow(QMainWindow):
                 f"Generated: {generated_at}<br/>"
                 f"Total Nodes: {len(self.nodes)}<br/>"
                 f"Filtered Nodes: {len(filtered_nodes)}<br/>"
-                f"{self.health_summary_label.text()}",
+                f"{self.health_summary_label.text()}<br/>"
+                f"{self.kpi_label.text()}",
                 styles["Normal"]
             )
 
@@ -469,6 +553,11 @@ class MainWindow(QMainWindow):
             )
 
     def open_node_detail(self, row, column):
+        """
+        Open detail window for the selected node.
+        Uses filtered list so row index matches the visible table.
+        """
+
         filtered_nodes = self.get_filtered_nodes()
 
         if row < 0 or row >= len(filtered_nodes):
@@ -480,3 +569,29 @@ class MainWindow(QMainWindow):
         detail_window.show()
 
         self.detail_windows.append(detail_window)
+
+    def open_node_comparison(self):
+        """
+        Open comparison window for currently filtered nodes.
+
+        Example:
+        - Filter dashboard to Critical.
+        - Click Compare Nodes.
+        - Only Critical nodes will be available for comparison.
+        """
+
+        if not self.nodes:
+            QMessageBox.warning(
+                self,
+                "Compare Nodes",
+                "No nodes loaded."
+            )
+            return
+
+        comparison_window = NodeComparisonWindow(
+            self.get_filtered_nodes()
+        )
+
+        comparison_window.show()
+
+        self.comparison_windows.append(comparison_window)
