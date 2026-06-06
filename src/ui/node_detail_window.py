@@ -78,6 +78,17 @@ class NodeDetailWindow(QMainWindow):
 
         layout.addLayout(date_layout)
 
+        self.metric_filter = QComboBox()
+        self.metric_filter.addItems(
+            [
+                "Voltage",
+                "Charge",
+                "Temperature",
+                "GPS Quality",
+            ]
+        )
+        layout.addWidget(self.metric_filter)
+
         self.acq_filter = QComboBox()
         self.acq_filter.addItems(
             [
@@ -91,7 +102,7 @@ class NodeDetailWindow(QMainWindow):
 
         self.apply_filter_button = QPushButton("Apply Filter")
         self.apply_filter_button.clicked.connect(
-            self.load_voltage_chart
+            self.load_metric_chart
         )
         layout.addWidget(self.apply_filter_button)
 
@@ -100,7 +111,7 @@ class NodeDetailWindow(QMainWindow):
 
         central_widget.setLayout(layout)
 
-        self.load_voltage_chart()
+        self.load_metric_chart()
 
     def parse_timestamps(self, df):
         df = df.copy()
@@ -110,14 +121,12 @@ class NodeDetailWindow(QMainWindow):
 
         raw_timestamp = df["timestamp"].astype(str).str.strip()
 
-        # 1) Formato Sercel con segundos: 05/03/2026 22:19:30
         parsed = pd.to_datetime(
             raw_timestamp,
             format="%d/%m/%Y %H:%M:%S",
             errors="coerce"
         )
 
-        # 2) Formato Sercel sin segundos: 05/03/2026 22:19
         missing_mask = parsed.isna()
 
         if missing_mask.any():
@@ -129,7 +138,6 @@ class NodeDetailWindow(QMainWindow):
 
             parsed.loc[missing_mask] = parsed_no_seconds
 
-        # 3) Formato ISO/Pandas: 2026-03-05 22:19:00
         missing_mask = parsed.isna()
 
         if missing_mask.any():
@@ -202,19 +210,73 @@ class NodeDetailWindow(QMainWindow):
             f"{max_date.strftime('%d/%m/%Y %H:%M')}"
         )
 
-    def load_voltage_chart(self):
+    def get_metric_config(self):
+        selected_metric = self.metric_filter.currentText()
+
+        metric_config = {
+            "Voltage": {
+                "column": "voltage_mv",
+                "title": "Voltage History",
+                "axis": "Voltage (mV)",
+                "trend_name": "Voltage trend",
+                "unit": "mV",
+            },
+            "Charge": {
+                "column": "charge_percent",
+                "title": "Charge History",
+                "axis": "Charge (%)",
+                "trend_name": "Charge trend",
+                "unit": "%",
+            },
+            "Temperature": {
+                "column": "temperature_c",
+                "title": "Temperature History",
+                "axis": "Temperature (°C)",
+                "trend_name": "Temperature trend",
+                "unit": "°C",
+            },
+            "GPS Quality": {
+                "column": "gps_quality",
+                "title": "GPS Quality History",
+                "axis": "GPS Quality (%)",
+                "trend_name": "GPS Quality trend",
+                "unit": "%",
+            },
+        }
+
+        return metric_config.get(
+            selected_metric,
+            metric_config["Voltage"]
+        )
+
+    def load_metric_chart(self):
         df = self.records_df.copy()
 
         if df.empty:
             self.web_view.setHtml("<h3>No records found</h3>")
             return
 
+        metric = self.get_metric_config()
+        metric_column = metric["column"]
+
         df = self.parse_timestamps(df)
 
-        df = df.dropna(
-            subset=["timestamp", "voltage_mv", "charge_percent"]
+        df[metric_column] = pd.to_numeric(
+            df[metric_column],
+            errors="coerce"
         )
-
+        if metric_column == "charge_percent":
+             df = df[
+        df["charge_percent"] > 0
+        ]
+        df = df.dropna(
+            subset=["timestamp", metric_column]
+        )
+        
+        if metric_column == "charge_percent":
+            df = df[
+                    df["charge_percent"] > 0
+            ]
         df = df.sort_values(
             by="timestamp"
         )
@@ -251,7 +313,6 @@ class NodeDetailWindow(QMainWindow):
             return
 
         fig = go.Figure()
-        
 
         color_map = {
             "Seismic": "#1f77b4",
@@ -263,9 +324,9 @@ class NodeDetailWindow(QMainWindow):
             fig.add_trace(
                 go.Scatter(
                     x=df["timestamp"],
-                    y=df["voltage_mv"],
+                    y=df[metric_column],
                     mode="lines",
-                    name="Voltage trend",
+                    name=metric["trend_name"],
                     line=dict(
                         color="#444444",
                         width=2
@@ -282,7 +343,7 @@ class NodeDetailWindow(QMainWindow):
                 fig.add_trace(
                     go.Scatter(
                         x=filtered_df["timestamp"],
-                        y=filtered_df["voltage_mv"],
+                        y=filtered_df[metric_column],
                         mode="markers",
                         name=acq_type,
                         marker=dict(
@@ -301,9 +362,9 @@ class NodeDetailWindow(QMainWindow):
             fig.add_trace(
                 go.Scatter(
                     x=df["timestamp"],
-                    y=df["voltage_mv"],
+                    y=df[metric_column],
                     mode="lines+markers",
-                    name=f"Voltage ({selected_acq})",
+                    name=f"{self.metric_filter.currentText()} ({selected_acq})",
                     line=dict(
                         color=color,
                         width=2
@@ -315,33 +376,10 @@ class NodeDetailWindow(QMainWindow):
                 )
             )
 
-            fig.add_trace(
-            go.Scatter(
-                x=df["timestamp"],
-                y=df["charge_percent"],
-                mode="lines",
-                name="Charge (%)",
-                yaxis="y2",
-                line=dict(
-                    color="#2ca02c",
-                    width=2,
-                    dash="dot"
-                )
-            )
-        )
-
         fig.update_layout(
-            title=f"Voltage and Charge History - Node {self.serial_number}",
+            title=f"{metric['title']} - Node {self.serial_number}",
             xaxis_title="Time",
-            yaxis=dict(
-                title="Voltage (mV)"
-            ),
-            yaxis2=dict(
-                title="Charge (%)",
-                overlaying="y",
-                side="right",
-                range=[0, 100]
-            ),
+            yaxis_title=metric["axis"],
             template="plotly_white",
             legend_title="Data",
         )
