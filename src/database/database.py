@@ -1,13 +1,23 @@
 from pathlib import Path
 import sqlite3
 
+import pandas as pd
+
 
 DATABASE_PATH = Path("data") / "database" / "node_health.db"
 
 
 def get_connection():
     DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    return sqlite3.connect(DATABASE_PATH)
+
+    conn = sqlite3.connect(
+        DATABASE_PATH,
+        timeout=30
+    )
+
+    conn.execute("PRAGMA busy_timeout = 30000")
+
+    return conn
 
 
 def initialize_database():
@@ -42,8 +52,10 @@ def initialize_database():
 def clear_database():
     conn = get_connection()
     cursor = conn.cursor()
+
     cursor.execute("DELETE FROM health_records")
     cursor.execute("DELETE FROM nodes")
+
     conn.commit()
     conn.close()
 
@@ -96,3 +108,32 @@ def save_node_records(serial_number, records):
 
     conn.commit()
     conn.close()
+
+
+def get_records_by_serial(serial_number):
+    conn = get_connection()
+
+    query = """
+        SELECT
+            health_records.timestamp,
+            health_records.voltage_mv,
+            health_records.charge_percent,
+            health_records.gps_quality,
+            health_records.temperature_c,
+            health_records.acq_type
+        FROM health_records
+        INNER JOIN nodes
+            ON health_records.node_id = nodes.id
+        WHERE nodes.serial_number = ?
+        ORDER BY health_records.timestamp
+    """
+
+    df = pd.read_sql_query(
+        query,
+        conn,
+        params=(serial_number,)
+    )
+
+    conn.close()
+
+    return df

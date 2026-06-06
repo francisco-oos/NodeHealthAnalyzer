@@ -81,11 +81,10 @@ class MainWindow(QMainWindow):
         self.table.clearContents()
         self.table.setRowCount(0)
         self.nodes_label.setText("Nodes Loaded: 0")
-
+        #BORRAR PARA PRODUCCION
         clear_database()
-
         self.nodes = self.importer.load_folder(folder)
-
+        #BORRAR PARA PRODUCCION
         self.update_table()
 
     def update_table(self):
