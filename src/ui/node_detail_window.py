@@ -212,7 +212,7 @@ class NodeDetailWindow(QMainWindow):
         df = self.parse_timestamps(df)
 
         df = df.dropna(
-            subset=["timestamp", "voltage_mv"]
+            subset=["timestamp", "voltage_mv", "charge_percent"]
         )
 
         df = df.sort_values(
@@ -251,6 +251,7 @@ class NodeDetailWindow(QMainWindow):
             return
 
         fig = go.Figure()
+        
 
         color_map = {
             "Seismic": "#1f77b4",
@@ -314,12 +315,35 @@ class NodeDetailWindow(QMainWindow):
                 )
             )
 
+            fig.add_trace(
+            go.Scatter(
+                x=df["timestamp"],
+                y=df["charge_percent"],
+                mode="lines",
+                name="Charge (%)",
+                yaxis="y2",
+                line=dict(
+                    color="#2ca02c",
+                    width=2,
+                    dash="dot"
+                )
+            )
+        )
+
         fig.update_layout(
-            title=f"Voltage History - Node {self.serial_number}",
+            title=f"Voltage and Charge History - Node {self.serial_number}",
             xaxis_title="Time",
-            yaxis_title="Voltage (mV)",
+            yaxis=dict(
+                title="Voltage (mV)"
+            ),
+            yaxis2=dict(
+                title="Charge (%)",
+                overlaying="y",
+                side="right",
+                range=[0, 100]
+            ),
             template="plotly_white",
-            legend_title="Acq Type",
+            legend_title="Data",
         )
 
         html = fig.to_html(
