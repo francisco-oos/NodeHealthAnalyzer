@@ -20,17 +20,17 @@ from PySide6.QtWidgets import (
 )
 
 from src.database.database import get_records_by_serial
+from src.translations.language_manager import LanguageManager
 
 
 class NodeComparisonWindow(QMainWindow):
     """
     Multi-node comparison window.
 
-    Responsibilities:
-    - Select multiple nodes.
-    - Select a metric.
-    - Filter by date range.
-    - Plot selected nodes on the same chart.
+    Important:
+    - Internal metric values stay in English.
+    - Only visible UI text is translated.
+    - CSV/database values are not modified.
     """
 
     def __init__(self, nodes):
@@ -39,26 +39,39 @@ class NodeComparisonWindow(QMainWindow):
         self.nodes = nodes
         self.last_figure_html = ""
 
-        self.setWindowTitle("Node Comparison")
+        self.setWindowTitle(
+            self.t("node_comparison")
+        )
+
         self.resize(1100, 750)
 
         self.setup_ui()
 
+    def t(self, key):
+        """
+        Translate visible UI text using global LanguageManager.
+        """
+
+        return LanguageManager.translate(key)
+
     def setup_ui(self):
+        """
+        Build comparison window interface.
+        """
+
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
 
         layout = QVBoxLayout()
 
-        title = QLabel("Node Comparison")
-        layout.addWidget(title)
+        self.title_label = QLabel()
+        layout.addWidget(self.title_label)
 
-        self.info_label = QLabel(
-            "Select one or more nodes, choose a metric, then click Compare."
-        )
+        self.info_label = QLabel()
         layout.addWidget(self.info_label)
 
-        layout.addWidget(QLabel("Select Nodes"))
+        self.select_nodes_label = QLabel()
+        layout.addWidget(self.select_nodes_label)
 
         self.node_list = QListWidget()
         self.node_list.setSelectionMode(
@@ -74,17 +87,20 @@ class NodeComparisonWindow(QMainWindow):
 
         selection_layout = QHBoxLayout()
 
-        self.select_all_button = QPushButton("Select All")
+        self.select_all_button = QPushButton()
         self.select_all_button.clicked.connect(self.select_all_nodes)
         selection_layout.addWidget(self.select_all_button)
 
-        self.clear_selection_button = QPushButton("Clear Selection")
+        self.clear_selection_button = QPushButton()
         self.clear_selection_button.clicked.connect(self.clear_selection)
         selection_layout.addWidget(self.clear_selection_button)
 
         layout.addLayout(selection_layout)
 
         date_layout = QHBoxLayout()
+
+        self.start_date_label = QLabel()
+        self.end_date_label = QLabel()
 
         self.start_date = QDateEdit()
         self.start_date.setCalendarPopup(True)
@@ -96,51 +112,100 @@ class NodeComparisonWindow(QMainWindow):
 
         self.configure_date_range()
 
-        date_layout.addWidget(QLabel("Start Date"))
+        date_layout.addWidget(self.start_date_label)
         date_layout.addWidget(self.start_date)
 
-        date_layout.addWidget(QLabel("End Date"))
+        date_layout.addWidget(self.end_date_label)
         date_layout.addWidget(self.end_date)
 
         layout.addLayout(date_layout)
 
-        layout.addWidget(QLabel("Metric"))
+        self.metric_label = QLabel()
+        layout.addWidget(self.metric_label)
 
         self.metric_filter = QComboBox()
-        self.metric_filter.addItems(
-            [
-                "Voltage",
-                "Charge",
-                "Temperature",
-                "GPS Quality",
-            ]
-        )
+        self.metric_filter.addItem(self.t("voltage"), "Voltage")
+        self.metric_filter.addItem(self.t("charge"), "Charge")
+        self.metric_filter.addItem(self.t("temperature"), "Temperature")
+        self.metric_filter.addItem(self.t("gps_quality"), "GPS Quality")
         layout.addWidget(self.metric_filter)
 
-        self.compare_button = QPushButton("Compare Selected Nodes")
+        self.compare_button = QPushButton()
         self.compare_button.clicked.connect(
             self.load_comparison_chart
         )
         layout.addWidget(self.compare_button)
 
-        self.export_html_button = QPushButton("Export Chart HTML")
+        self.export_html_button = QPushButton()
         self.export_html_button.clicked.connect(
             self.export_chart_html
         )
         layout.addWidget(self.export_html_button)
 
         self.web_view = QWebEngineView()
-        self.web_view.setHtml(
-            "<h3>Select nodes and click Compare Selected Nodes</h3>"
-        )
         layout.addWidget(self.web_view)
 
         central_widget.setLayout(layout)
 
+        self.apply_language()
+
+    def apply_language(self):
+        """
+        Apply translations to visible controls.
+        """
+
+        self.setWindowTitle(
+            self.t("node_comparison")
+        )
+
+        self.title_label.setText(
+            self.t("node_comparison")
+        )
+
+        self.info_label.setText(
+            f"{self.t('select_nodes')}, {self.t('metric')}, "
+            f"{self.t('compare_selected')}"
+        )
+
+        self.select_nodes_label.setText(
+            self.t("select_nodes")
+        )
+
+        self.select_all_button.setText(
+            self.t("select_all")
+        )
+
+        self.clear_selection_button.setText(
+            self.t("clear_selection")
+        )
+
+        self.start_date_label.setText(
+            self.t("start_date")
+        )
+
+        self.end_date_label.setText(
+            self.t("end_date")
+        )
+
+        self.metric_label.setText(
+            self.t("metric")
+        )
+
+        self.compare_button.setText(
+            self.t("compare_selected")
+        )
+
+        self.export_html_button.setText(
+            self.t("export_chart_html")
+        )
+
+        self.web_view.setHtml(
+            f"<h3>{self.t('select_nodes')}</h3>"
+        )
+
     def select_all_nodes(self):
         """
-        Select all nodes in the list.
-        Useful when comparing all currently filtered dashboard nodes.
+        Select all visible nodes in the list.
         """
 
         for index in range(self.node_list.count()):
@@ -149,7 +214,7 @@ class NodeComparisonWindow(QMainWindow):
 
     def clear_selection(self):
         """
-        Clear current node selection.
+        Clear node selection.
         """
 
         self.node_list.clearSelection()
@@ -157,29 +222,30 @@ class NodeComparisonWindow(QMainWindow):
     def get_metric_config(self):
         """
         Return selected metric configuration.
+        itemData keeps the internal value.
         """
 
-        selected_metric = self.metric_filter.currentText()
+        selected_metric = self.metric_filter.currentData()
 
         metric_config = {
             "Voltage": {
                 "column": "voltage_mv",
-                "title": "Voltage Comparison",
+                "title": f"{self.t('voltage')} Comparison",
                 "axis": "Voltage (mV)",
             },
             "Charge": {
                 "column": "charge_percent",
-                "title": "Charge Comparison",
+                "title": f"{self.t('charge')} Comparison",
                 "axis": "Charge (%)",
             },
             "Temperature": {
                 "column": "temperature_c",
-                "title": "Temperature Comparison",
+                "title": f"{self.t('temperature')} Comparison",
                 "axis": "Temperature (°C)",
             },
             "GPS Quality": {
                 "column": "gps_quality",
-                "title": "GPS Quality Comparison",
+                "title": f"{self.t('gps_quality')} Comparison",
                 "axis": "GPS Quality (%)",
             },
         }
@@ -192,11 +258,6 @@ class NodeComparisonWindow(QMainWindow):
     def parse_timestamps(self, df):
         """
         Parse Sercel and SQLite timestamp formats.
-
-        Supported formats:
-        - dd/mm/yyyy HH:MM:SS
-        - dd/mm/yyyy HH:MM
-        - yyyy-mm-dd HH:MM:SS
         """
 
         df = df.copy()
@@ -237,8 +298,7 @@ class NodeComparisonWindow(QMainWindow):
 
     def configure_date_range(self):
         """
-        Configure comparison date filter using the minimum and maximum
-        timestamp available across all nodes passed to this window.
+        Configure comparison date range using all loaded nodes.
         """
 
         min_date = None
@@ -294,13 +354,15 @@ class NodeComparisonWindow(QMainWindow):
 
     def load_comparison_chart(self):
         """
-        Build and render the comparison chart.
+        Build and render comparison chart.
         """
 
         selected_items = self.node_list.selectedItems()
 
         if not selected_items:
-            self.web_view.setHtml("<h3>Select at least one node.</h3>")
+            self.web_view.setHtml(
+                f"<h3>{self.t('select_nodes')}</h3>"
+            )
             return
 
         metric = self.get_metric_config()
@@ -329,7 +391,7 @@ class NodeComparisonWindow(QMainWindow):
         ]
 
         self.info_label.setText(
-            f"Comparing {len(selected_serials)} node(s): "
+            f"{self.t('compare_selected')}: "
             + ", ".join(selected_serials)
         )
 
@@ -368,8 +430,7 @@ class NodeComparisonWindow(QMainWindow):
                     (df["acq_type"] != "No acquisition")
                 ]
 
-            # GPS Quality during "No acquisition" is often not useful
-            # for operational acquisition analysis.
+            # GPS during No acquisition can distort operational interpretation.
             if metric_column == "gps_quality":
                 df = df[
                     df["acq_type"] != "No acquisition"
@@ -405,7 +466,7 @@ class NodeComparisonWindow(QMainWindow):
             xaxis_title="Time",
             yaxis_title=metric["axis"],
             template="plotly_white",
-            legend_title="Nodes",
+            legend_title=self.t("node"),
         )
 
         html = fig.to_html(
@@ -417,20 +478,20 @@ class NodeComparisonWindow(QMainWindow):
 
     def export_chart_html(self):
         """
-        Export last generated comparison chart as an interactive HTML file.
+        Export last generated chart as interactive HTML.
         """
 
         if not self.last_figure_html:
             QMessageBox.warning(
                 self,
-                "Export Chart HTML",
+                self.t("export_chart_html"),
                 "No chart available to export. Generate a comparison first."
             )
             return
 
         file_path, _ = QFileDialog.getSaveFileName(
             self,
-            "Save Comparison Chart",
+            self.t("export_chart_html"),
             "node_comparison_chart.html",
             "HTML Files (*.html)"
         )
@@ -444,7 +505,7 @@ class NodeComparisonWindow(QMainWindow):
 
             QMessageBox.information(
                 self,
-                "Export Chart HTML",
+                self.t("export_chart_html"),
                 "Comparison chart exported successfully."
             )
 
