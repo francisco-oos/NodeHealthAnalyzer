@@ -31,150 +31,222 @@ from src.database.database import clear_database
 from src.importers.importer import CSVImporter
 from src.ui.node_detail_window import NodeDetailWindow
 from src.ui.node_comparison_window import NodeComparisonWindow
+from src.translations.translations import TRANSLATIONS
 
 
 class MainWindow(QMainWindow):
     """
     Main application window.
 
-    Responsibilities:
-    - Import Sercel CSV folders.
-    - Display loaded nodes in a dashboard table.
-    - Filter/search nodes.
-    - Export filtered results to Excel/PDF.
-    - Open node detail window.
-    - Open multi-node comparison window.
+    Important:
+    - Internal data stays in English/raw CSV values.
+    - Only user interface text is translated.
+    - Classification logic still uses:
+      Excellent, Good, Warning, Critical.
     """
 
     def __init__(self):
         super().__init__()
 
+        self.language = "en"
+
         self.setWindowTitle("Node Health Analyzer")
         self.resize(1200, 800)
 
         self.importer = CSVImporter()
-
-        # In-memory list of loaded node summaries.
         self.nodes = []
 
-        # Keep references to child windows.
-        # This prevents PySide from garbage-collecting opened windows.
+        # Keep child windows alive.
         self.detail_windows = []
         self.comparison_windows = []
 
         self.setup_ui()
 
+    def t(self, key):
+        """
+        Translate a UI text key using the selected language.
+        Falls back to English or the key itself.
+        """
+        return TRANSLATIONS.get(
+            self.language,
+            TRANSLATIONS["en"]
+        ).get(
+            key,
+            key
+        )
+
     def setup_ui(self):
         """
-        Build the main dashboard UI.
+        Build main dashboard interface.
         """
-
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
 
         layout = QVBoxLayout()
 
-        self.title_label = QLabel("Node Health Analyzer")
+        self.title_label = QLabel()
         layout.addWidget(self.title_label)
 
+        # Language selector.
+        # The visible text can change, but the internal value remains en/es/zh.
+        self.language_filter = QComboBox()
+        self.language_filter.addItem("English", "en")
+        self.language_filter.addItem("Español", "es")
+        self.language_filter.addItem("中文", "zh")
+        self.language_filter.currentIndexChanged.connect(
+            self.change_language
+        )
+        layout.addWidget(self.language_filter)
 
-        self.import_button = QPushButton("Import Folder")
+        self.import_button = QPushButton()
         self.import_button.clicked.connect(self.import_folder)
         layout.addWidget(self.import_button)
 
-        self.export_excel_button = QPushButton("Export Excel")
+        self.export_excel_button = QPushButton()
         self.export_excel_button.clicked.connect(self.export_excel)
         layout.addWidget(self.export_excel_button)
 
-        self.export_pdf_button = QPushButton("Export PDF")
+        self.export_pdf_button = QPushButton()
         self.export_pdf_button.clicked.connect(self.export_pdf)
         layout.addWidget(self.export_pdf_button)
 
-        self.compare_button = QPushButton("Compare Nodes")
+        self.compare_button = QPushButton()
         self.compare_button.clicked.connect(
             self.open_node_comparison
         )
         layout.addWidget(self.compare_button)
 
-        self.nodes_label = QLabel("Nodes Loaded: 0")
+        self.nodes_label = QLabel()
         layout.addWidget(self.nodes_label)
 
-        self.health_summary_label = QLabel(
-            "Excellent: 0 | Good: 0 | Warning: 0 | Critical: 0"
-        )
+        self.health_summary_label = QLabel()
         layout.addWidget(self.health_summary_label)
 
-        self.kpi_label = QLabel(
-            "Average Voltage: 0 mV | Average Charge: 0 %"
-        )
+        self.kpi_label = QLabel()
         layout.addWidget(self.kpi_label)
 
         self.search_box = QLineEdit()
-        self.search_box.setPlaceholderText("Search Node...")
         self.search_box.textChanged.connect(self.update_table)
         layout.addWidget(self.search_box)
 
+        # Classification filter:
+        # Visible text is translated.
+        # Internal itemData remains in English.
         self.classification_filter = QComboBox()
-        self.classification_filter.addItems(
-            [
-                "All",
-                "Excellent",
-                "Good",
-                "Warning",
-                "Critical",
-            ]
-        )
-        self.classification_filter.currentTextChanged.connect(
+        self.classification_filter.currentIndexChanged.connect(
             self.update_table
         )
         layout.addWidget(self.classification_filter)
 
         self.table = QTableWidget()
         self.table.setColumnCount(10)
-        self.table.setHorizontalHeaderLabels(
-            [
-                "Node",
-                "Records",
-                "Voltage (mV)",
-                "Charge (%)",
-                "Acq Type",
-                "GPS (%)",
-                "Temp (°C)",
-                "Last Time",
-                "Health Score",
-                "Classification",
-            ]
-        )
-
-        # Double click opens the node detail chart window.
         self.table.cellDoubleClicked.connect(
             self.open_node_detail
         )
-
         layout.addWidget(self.table)
-        central_widget.setLayout(layout)
-        self.about_button = QPushButton("About")
+
+        self.about_button = QPushButton()
         self.about_button.clicked.connect(self.show_about)
         layout.addWidget(self.about_button)
+
+        central_widget.setLayout(layout)
+
+        self.apply_language()
+
+    def change_language(self):
+        """
+        Change current UI language and refresh visible labels.
+        """
+        self.language = self.language_filter.currentData()
+        self.apply_language()
+        self.update_table()
+
+    def apply_language(self):
+        """
+        Apply translations to all main window controls.
+        """
+        self.setWindowTitle(self.t("app_title"))
+        self.title_label.setText(self.t("app_title"))
+
+        self.import_button.setText(self.t("import_folder"))
+        self.export_excel_button.setText(self.t("export_excel"))
+        self.export_pdf_button.setText(self.t("export_pdf"))
+        self.compare_button.setText(self.t("compare_nodes"))
+        self.about_button.setText(self.t("about"))
+
+        self.search_box.setPlaceholderText(self.t("search_node"))
+
+        self.update_classification_filter_items()
+        self.update_table_headers()
+        self.update_labels()
+
+    def update_classification_filter_items(self):
+        """
+        Rebuild classification filter without changing internal values.
+        """
+        current_value = self.classification_filter.currentData()
+
+        if current_value is None:
+            current_value = "All"
+
+        self.classification_filter.blockSignals(True)
+        self.classification_filter.clear()
+
+        self.classification_filter.addItem(self.t("all"), "All")
+        self.classification_filter.addItem(self.t("excellent"), "Excellent")
+        self.classification_filter.addItem(self.t("good"), "Good")
+        self.classification_filter.addItem(self.t("warning"), "Warning")
+        self.classification_filter.addItem(self.t("critical"), "Critical")
+
+        for index in range(self.classification_filter.count()):
+            if self.classification_filter.itemData(index) == current_value:
+                self.classification_filter.setCurrentIndex(index)
+                break
+
+        self.classification_filter.blockSignals(False)
+
+    def update_table_headers(self):
+        """
+        Translate table headers.
+        Raw data values are not modified.
+        """
+        self.table.setHorizontalHeaderLabels(
+            [
+                self.t("node"),
+                self.t("records"),
+                "Voltage (mV)",
+                "Charge (%)",
+                self.t("acq_type"),
+                "GPS (%)",
+                "Temp (°C)",
+                self.t("last_time"),
+                self.t("health_score"),
+                self.t("classification"),
+            ]
+        )
+
+    def update_labels(self):
+        """
+        Refresh translated labels and KPIs.
+        """
+        self.nodes_label.setText(
+            f"{self.t('nodes_loaded')}: {len(self.nodes)}"
+        )
+
+        self.update_health_summary()
+        self.update_kpis()
+
     def import_folder(self):
         """
         Import all CSV files from a selected folder.
 
-        Current V1 behavior:
-        - The database is cleared before each import.
-        - This avoids duplicate records while we are developing/testing.
-
-        Future production behavior:
-        - Remove or disable clear_database().
-        - Replace with a smarter import strategy:
-          - avoid duplicates,
-          - update existing nodes,
-          - preserve historical campaigns.
+        DEVELOPMENT NOTE:
+        clear_database() is used to avoid duplicate records while testing.
+        For production, replace this with duplicate-safe import logic.
         """
-
         folder = QFileDialog.getExistingDirectory(
             self,
-            "Select Folder"
+            self.t("import_folder")
         )
 
         if not folder:
@@ -184,22 +256,15 @@ class MainWindow(QMainWindow):
         self.table.clearContents()
         self.table.setRowCount(0)
 
-        self.nodes_label.setText("Nodes Loaded: 0")
-        self.health_summary_label.setText(
-            "Excellent: 0 | Good: 0 | Warning: 0 | Critical: 0"
-        )
-        self.kpi_label.setText(
-            "Average Voltage: 0 mV | Average Charge: 0 %"
-        )
-
         self.search_box.clear()
-        self.classification_filter.setCurrentText("All")
+
+        self.classification_filter.blockSignals(True)
+        self.classification_filter.setCurrentIndex(0)
+        self.classification_filter.blockSignals(False)
 
         # DEVELOPMENT ONLY:
-        # Clears SQLite database before each import.
-        # Useful now because we reload the same test folders many times.
-        # Do NOT keep this behavior in production if historical data
-        # must be preserved.
+        # Remove or replace this in production if historical data
+        # must be preserved between imports.
         clear_database()
 
         self.nodes = self.importer.load_folder(folder)
@@ -211,8 +276,9 @@ class MainWindow(QMainWindow):
         Return nodes filtered by:
         - serial number search
         - classification dropdown
-        """
 
+        Classification uses internal English values.
+        """
         filtered_nodes = self.nodes
 
         search_text = self.search_box.text().strip()
@@ -224,9 +290,9 @@ class MainWindow(QMainWindow):
                 if search_text in node.get("serial_number", "")
             ]
 
-        selected_classification = self.classification_filter.currentText()
+        selected_classification = self.classification_filter.currentData()
 
-        if selected_classification != "All":
+        if selected_classification and selected_classification != "All":
             filtered_nodes = [
                 node
                 for node in filtered_nodes
@@ -237,9 +303,9 @@ class MainWindow(QMainWindow):
 
     def update_health_summary(self):
         """
-        Update count of nodes by classification.
+        Update translated health summary.
+        Internal classification values remain unchanged.
         """
-
         excellent = sum(
             1 for node in self.nodes
             if node.get("classification") == "Excellent"
@@ -261,23 +327,20 @@ class MainWindow(QMainWindow):
         )
 
         self.health_summary_label.setText(
-            f"Excellent: {excellent} | "
-            f"Good: {good} | "
-            f"Warning: {warning} | "
-            f"Critical: {critical}"
+            f"{self.t('excellent')}: {excellent} | "
+            f"{self.t('good')}: {good} | "
+            f"{self.t('warning')}: {warning} | "
+            f"{self.t('critical')}: {critical}"
         )
 
     def update_kpis(self):
         """
-        Update dashboard KPI averages.
-
-        These averages are calculated from the latest valid value
-        of each loaded node.
+        Update average voltage and charge KPIs.
         """
-
         if not self.nodes:
             self.kpi_label.setText(
-                "Average Voltage: 0 mV | Average Charge: 0 %"
+                f"{self.t('average_voltage')}: 0 mV | "
+                f"{self.t('average_charge')}: 0 %"
             )
             return
 
@@ -303,24 +366,18 @@ class MainWindow(QMainWindow):
             avg_charge = 0
 
         self.kpi_label.setText(
-            f"Average Voltage: {avg_voltage:.0f} mV | "
-            f"Average Charge: {avg_charge:.1f} %"
+            f"{self.t('average_voltage')}: {avg_voltage:.0f} mV | "
+            f"{self.t('average_charge')}: {avg_charge:.1f} %"
         )
 
     def update_table(self):
         """
-        Refresh the dashboard table using current filters.
+        Refresh table using current search/filter state.
         """
-
         self.table.clearContents()
         self.table.setRowCount(0)
 
-        self.nodes_label.setText(
-            f"Nodes Loaded: {len(self.nodes)}"
-        )
-
-        self.update_health_summary()
-        self.update_kpis()
+        self.update_labels()
 
         filtered_nodes = self.get_filtered_nodes()
 
@@ -334,6 +391,16 @@ class MainWindow(QMainWindow):
         }
 
         for row, node in enumerate(filtered_nodes):
+            classification = node.get("classification", "")
+
+            # Display translated classification only in UI.
+            # Internal value remains unchanged.
+            display_classification = {
+                "Excellent": self.t("excellent"),
+                "Good": self.t("good"),
+                "Warning": self.t("warning"),
+                "Critical": self.t("critical"),
+            }.get(classification, classification)
 
             values = [
                 node.get("serial_number", ""),
@@ -345,10 +412,9 @@ class MainWindow(QMainWindow):
                 node.get("temperature", ""),
                 node.get("last_time", ""),
                 node.get("health_score", ""),
-                node.get("classification", ""),
+                display_classification,
             ]
 
-            classification = node.get("classification", "")
             classification_color = classification_colors.get(
                 classification,
                 QColor(255, 255, 255)
@@ -357,8 +423,6 @@ class MainWindow(QMainWindow):
             for column, value in enumerate(values):
                 item = QTableWidgetItem(str(value))
 
-                # Only Health Score and Classification are colored.
-                # This keeps the table readable in dark mode.
                 if column in [8, 9]:
                     item.setForeground(classification_color)
                     item.setFont(QFont("", -1, QFont.Bold))
@@ -373,22 +437,22 @@ class MainWindow(QMainWindow):
 
     def export_excel(self):
         """
-        Export the currently filtered dashboard table to Excel.
+        Export filtered dashboard data to Excel.
+        Headers follow selected UI language.
         """
-
         filtered_nodes = self.get_filtered_nodes()
 
         if not filtered_nodes:
             QMessageBox.warning(
                 self,
-                "Export Excel",
-                "No data available to export."
+                self.t("export_excel"),
+                self.t("no_data_export")
             )
             return
 
         file_path, _ = QFileDialog.getSaveFileName(
             self,
-            "Save Excel Report",
+            self.t("export_excel"),
             "node_health_report.xlsx",
             "Excel Files (*.xlsx)"
         )
@@ -400,16 +464,16 @@ class MainWindow(QMainWindow):
 
         for node in filtered_nodes:
             rows.append({
-                "Node": node.get("serial_number", ""),
-                "Records": node.get("records", ""),
+                self.t("node"): node.get("serial_number", ""),
+                self.t("records"): node.get("records", ""),
                 "Voltage (mV)": node.get("voltage", ""),
                 "Charge (%)": node.get("charge", ""),
-                "Acq Type": node.get("acq_type", ""),
+                self.t("acq_type"): node.get("acq_type", ""),
                 "GPS (%)": node.get("gps_quality", ""),
                 "Temp (°C)": node.get("temperature", ""),
-                "Last Time": node.get("last_time", ""),
-                "Health Score": node.get("health_score", ""),
-                "Classification": node.get("classification", ""),
+                self.t("last_time"): node.get("last_time", ""),
+                self.t("health_score"): node.get("health_score", ""),
+                self.t("classification"): node.get("classification", ""),
             })
 
         df = pd.DataFrame(rows)
@@ -422,7 +486,7 @@ class MainWindow(QMainWindow):
 
             QMessageBox.information(
                 self,
-                "Export Excel",
+                self.t("export_excel"),
                 "Excel report exported successfully."
             )
 
@@ -435,22 +499,22 @@ class MainWindow(QMainWindow):
 
     def export_pdf(self):
         """
-        Export the currently filtered dashboard table to a PDF report.
+        Export filtered dashboard data to PDF.
+        Headers follow selected UI language.
         """
-
         filtered_nodes = self.get_filtered_nodes()
 
         if not filtered_nodes:
             QMessageBox.warning(
                 self,
-                "Export PDF",
-                "No data available to export."
+                self.t("export_pdf"),
+                self.t("no_data_export")
             )
             return
 
         file_path, _ = QFileDialog.getSaveFileName(
             self,
-            "Save PDF Report",
+            self.t("export_pdf"),
             "node_health_report.pdf",
             "PDF Files (*.pdf)"
         )
@@ -492,15 +556,15 @@ class MainWindow(QMainWindow):
 
             table_data = [
                 [
-                    "Node",
-                    "Records",
+                    self.t("node"),
+                    self.t("records"),
                     "Voltage",
                     "Charge",
-                    "Acq Type",
+                    self.t("acq_type"),
                     "GPS",
                     "Temp",
-                    "Health",
-                    "Class",
+                    self.t("health_score"),
+                    self.t("classification"),
                 ]
             ]
 
@@ -539,12 +603,11 @@ class MainWindow(QMainWindow):
             )
 
             elements.append(table)
-
             doc.build(elements)
 
             QMessageBox.information(
                 self,
-                "Export PDF",
+                self.t("export_pdf"),
                 "PDF report exported successfully."
             )
 
@@ -557,10 +620,9 @@ class MainWindow(QMainWindow):
 
     def open_node_detail(self, row, column):
         """
-        Open detail window for the selected node.
-        Uses filtered list so row index matches the visible table.
+        Open node detail window.
+        Uses filtered node list so row index matches visible table.
         """
-
         filtered_nodes = self.get_filtered_nodes()
 
         if row < 0 or row >= len(filtered_nodes):
@@ -576,17 +638,11 @@ class MainWindow(QMainWindow):
     def open_node_comparison(self):
         """
         Open comparison window for currently filtered nodes.
-
-        Example:
-        - Filter dashboard to Critical.
-        - Click Compare Nodes.
-        - Only Critical nodes will be available for comparison.
         """
-
         if not self.nodes:
             QMessageBox.warning(
                 self,
-                "Compare Nodes",
+                self.t("compare_nodes"),
                 "No nodes loaded."
             )
             return
@@ -598,17 +654,21 @@ class MainWindow(QMainWindow):
         comparison_window.show()
 
         self.comparison_windows.append(comparison_window)
+
     def show_about(self):
+        """
+        Show application information.
+        """
         QMessageBox.information(
-        self,
-        "About Node Health Analyzer",
-        "Node Health Analyzer\n\n"
-        "Version: 1.0.0 Release Candidate\n\n"
-        "Desktop application for Sercel seismic node "
-        "battery health monitoring, CSV analysis, node comparison, "
-        "and operational reporting.\n\n"
-        "Developed by: Alvarado Leyva\n"
-        "Copyright © 2026\n\n"
-        "Technologies:\n"
-        "Python, PySide6, Pandas, Plotly, SQLite, ReportLab"
-    )
+            self,
+            self.t("about"),
+            "Node Health Analyzer\n\n"
+            "Version: 1.0.0 Release Candidate\n\n"
+            "Desktop application for Sercel seismic node "
+            "battery health monitoring, CSV analysis, node comparison, "
+            "and operational reporting.\n\n"
+            "Developed by: Alvarado Leyva\n"
+            "Copyright © 2026\n\n"
+            "Technologies:\n"
+            "Python, PySide6, Pandas, Plotly, SQLite, ReportLab"
+        )
