@@ -640,7 +640,6 @@ class MainWindow(QMainWindow):
                 "Export PDF Error",
                 str(e)
             )
-
     def open_node_detail(self, row, column):
         """
         Open node detail window.
@@ -678,20 +677,28 @@ class MainWindow(QMainWindow):
 
         comparison_window.show()
 
-        self.comparison_windows.append(comparison_window)
+        self.comparison_windows.append(
+            comparison_window
+        )
 
     def show_about(self):
         """
-        Show application information.
+        Show application and trial information.
         """
-        is_valid, days_used, days_remaining, install_date = (
-            TrialManager.get_trial_status()
-        )
+
+        (
+            is_valid,
+            days_used,
+            days_remaining,
+            install_date,
+            error_message
+        ) = TrialManager.get_trial_status()
+
         QMessageBox.information(
             self,
             self.t("about"),
             "Node Health Analyzer\n\n"
-            f"Version: 1.0.0 Trial\n"
+            "Version: 1.0.0 Trial\n\n"
             f"Install Date: {install_date}\n"
             f"Days Used: {days_used}\n"
             f"Days Remaining: {days_remaining}\n\n"
