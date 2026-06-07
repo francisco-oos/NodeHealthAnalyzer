@@ -46,6 +46,14 @@ TRANSLATIONS = {
         "charge": "Charge",
         "temperature": "Temperature",
         "gps_quality": "GPS Quality",
+        "records": "Records",
+        "acq_type": "Acq Type",
+        "last_time": "Last Time",
+        "health_score": "Health Score",
+        "classification": "Classification",
+        "average_voltage": "Average Voltage",
+        "average_charge": "Average Charge",
+        "no_data_export": "No data available to export.",
     },
 
     "es": {
@@ -88,6 +96,14 @@ TRANSLATIONS = {
         "charge": "Carga",
         "temperature": "Temperatura",
         "gps_quality": "Calidad GPS",
+        "records": "Registros",
+        "acq_type": "Tipo Adq.",
+        "last_time": "Última Fecha",
+        "health_score": "Salud",
+        "classification": "Clasificación",
+        "average_voltage": "Voltaje Promedio",
+        "average_charge": "Carga Promedio",
+        "no_data_export": "No hay datos para exportar.",
     },
 
     "zh": {
@@ -130,5 +146,13 @@ TRANSLATIONS = {
         "charge": "电量",
         "temperature": "温度",
         "gps_quality": "GPS质量",
+        "records": "记录",
+        "acq_type": "采集类型",
+        "last_time": "最后时间",
+        "health_score": "健康评分",
+        "classification": "分类",
+        "average_voltage": "平均电压",
+        "average_charge": "平均电量",
+        "no_data_export": "没有可导出的数据。",
     }
 }
