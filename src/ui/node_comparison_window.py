@@ -1,7 +1,7 @@
 import pandas as pd
 import plotly.graph_objects as go
 
-from PySide6.QtCore import QDate
+from PySide6.QtCore import QDate, QUrl
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -21,7 +21,9 @@ from PySide6.QtWidgets import (
 
 from src.database.database import get_records_by_serial
 from src.translations.language_manager import LanguageManager
-
+from pathlib import Path
+import tempfile
+import uuid
 
 class NodeComparisonWindow(QMainWindow):
     """
@@ -148,6 +150,30 @@ class NodeComparisonWindow(QMainWindow):
         central_widget.setLayout(layout)
 
         self.apply_language()
+    def render_chart_html(self, html):
+        """
+        Render Plotly HTML from a temporary file.
+
+        This avoids blank charts when packaged with PyInstaller.
+        """
+
+        temp_dir = Path(tempfile.gettempdir()) / "node_health_analyzer"
+        temp_dir.mkdir(
+            parents=True,
+            exist_ok=True
+        )
+
+        html_path = temp_dir / f"node_comparison_{uuid.uuid4().hex}.html"
+
+        html_path.write_text(
+            html,
+            encoding="utf-8"
+        )
+
+        self.web_view.load(
+            QUrl.fromLocalFile(str(html_path))
+        )
+        
 
     def apply_language(self):
         """
@@ -470,11 +496,11 @@ class NodeComparisonWindow(QMainWindow):
         )
 
         html = fig.to_html(
-            include_plotlyjs="cdn"
+            include_plotlyjs=True
         )
 
         self.last_figure_html = html
-        self.web_view.setHtml(html)
+        self.render_chart_html(html)
 
     def export_chart_html(self):
         """

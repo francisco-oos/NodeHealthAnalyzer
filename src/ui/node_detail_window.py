@@ -1,7 +1,7 @@
 import pandas as pd
 import plotly.graph_objects as go
 
-from PySide6.QtCore import QDate
+from PySide6.QtCore import QDate, QUrl
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (
     QLabel,
@@ -16,7 +16,11 @@ from PySide6.QtWidgets import (
 
 from src.database.database import get_records_by_serial
 from src.translations.language_manager import LanguageManager
+from pathlib import Path
+import tempfile
+import uuid
 
+from PySide6.QtCore import QDate, QUrl
 
 class NodeDetailWindow(QMainWindow):
     """
@@ -291,6 +295,30 @@ class NodeDetailWindow(QMainWindow):
             selected_metric,
             metric_config["Voltage"]
         )
+    def render_chart_html(self, html):
+        """
+        Render Plotly HTML from a temporary file.
+
+        This is more reliable than QWebEngineView.setHtml()
+        when the application is packaged as an EXE.
+        """
+
+        temp_dir = Path(tempfile.gettempdir()) / "node_health_analyzer"
+        temp_dir.mkdir(
+            parents=True,
+            exist_ok=True
+        )
+
+        html_path = temp_dir / f"node_detail_{uuid.uuid4().hex}.html"
+
+        html_path.write_text(
+            html,
+            encoding="utf-8"
+        )
+
+        self.web_view.load(
+            QUrl.fromLocalFile(str(html_path))
+        )
 
     def load_metric_chart(self):
         """
@@ -445,7 +473,8 @@ class NodeDetailWindow(QMainWindow):
         )
 
         html = fig.to_html(
-            include_plotlyjs="cdn"
+            include_plotlyjs=True
         )
 
-        self.web_view.setHtml(html)
+        self.render_chart_html(html)
+        
