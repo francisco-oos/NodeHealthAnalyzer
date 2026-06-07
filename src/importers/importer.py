@@ -3,6 +3,7 @@ from pathlib import Path
 import pandas as pd
 
 from src.analysis.health_score import calculate_health_score, classify_node
+from src.analysis.battery_life import calculate_battery_insight
 from src.database.database import save_node_records
 
 
@@ -58,6 +59,9 @@ class CSVImporter:
                     f"{record_count} registros"
                 )
 
+                analysis_df = pd.DataFrame(records_to_save)
+                battery_insight = calculate_battery_insight(analysis_df)
+
                 valid_df = df.dropna(
                     subset=["Int. Voltage (mV)", "Int. Charge (%)"]
                 )
@@ -111,6 +115,12 @@ class CSVImporter:
                     "file_path": str(csv_file),
                     "health_score": health_score,
                     "classification": classification,
+
+                    # Battery Intelligence dashboard values.
+                    "battery_health": battery_insight.get("battery_health"),
+                    "remaining_days": battery_insight.get("remaining_days"),
+                    "prediction_confidence": battery_insight.get("confidence"),
+                    "recommendation": battery_insight.get("recommendation"),
                 })
 
             except Exception as e:
@@ -128,6 +138,10 @@ class CSVImporter:
                     "file_path": str(csv_file),
                     "health_score": 0,
                     "classification": "Unknown",
+                    "battery_health": None,
+                    "remaining_days": None,
+                    "prediction_confidence": "Low",
+                    "recommendation": battery_insight.get("recommendation_key"),
                 })
 
         return nodes

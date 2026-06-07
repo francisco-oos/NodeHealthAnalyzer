@@ -28,12 +28,12 @@ from src.translations.language_manager import LanguageManager
 
 class NodeDetailWindow(QMainWindow):
     """
-    Node detail window with Battery Intelligence.
+    Ventana detalle del nodo.
 
-    Important:
-    - Raw CSV/database values are not translated.
-    - Only visible UI labels are translated.
-    - Battery prediction is simple V1.1 logic, not ML yet.
+    Notas:
+    - Los datos internos del CSV NO se traducen.
+    - Sólo se traducen etiquetas visibles.
+    - El tooltip de Plotly se mejora para que sea entendible.
     """
 
     def __init__(self, node_data):
@@ -41,17 +41,13 @@ class NodeDetailWindow(QMainWindow):
 
         self.node_data = node_data
         self.serial_number = node_data.get("serial_number", "")
-
-        self.records_df = get_records_by_serial(
-            self.serial_number
-        )
+        self.records_df = get_records_by_serial(self.serial_number)
 
         self.setWindowTitle(
             f"{self.t('node')} Details - {self.serial_number}"
         )
 
         self.resize(1100, 760)
-
         self.setup_ui()
 
     def t(self, key):
@@ -97,7 +93,6 @@ class NodeDetailWindow(QMainWindow):
 
         date_layout.addWidget(self.start_date_label)
         date_layout.addWidget(self.start_date)
-
         date_layout.addWidget(self.end_date_label)
         date_layout.addWidget(self.end_date)
 
@@ -121,9 +116,7 @@ class NodeDetailWindow(QMainWindow):
         layout.addWidget(self.acq_filter)
 
         self.apply_filter_button = QPushButton()
-        self.apply_filter_button.clicked.connect(
-            self.load_metric_chart
-        )
+        self.apply_filter_button.clicked.connect(self.load_metric_chart)
         layout.addWidget(self.apply_filter_button)
 
         self.web_view = QWebEngineView()
@@ -151,17 +144,9 @@ class NodeDetailWindow(QMainWindow):
             f"{self.t('classification')}: {self.node_data.get('classification', '')}"
         )
 
-        self.start_date_label.setText(
-            self.t("start_date")
-        )
-
-        self.end_date_label.setText(
-            self.t("end_date")
-        )
-
-        self.apply_filter_button.setText(
-            self.t("apply_filter")
-        )
+        self.start_date_label.setText(self.t("start_date"))
+        self.end_date_label.setText(self.t("end_date"))
+        self.apply_filter_button.setText(self.t("apply_filter"))
 
     def parse_timestamps(self, df):
         df = df.copy()
@@ -185,7 +170,6 @@ class NodeDetailWindow(QMainWindow):
                 format="%d/%m/%Y %H:%M",
                 errors="coerce"
             )
-
             parsed.loc[missing_mask] = parsed_no_seconds
 
         missing_mask = parsed.isna()
@@ -195,7 +179,6 @@ class NodeDetailWindow(QMainWindow):
                 raw_timestamp[missing_mask],
                 errors="coerce"
             )
-
             parsed.loc[missing_mask] = parsed_iso
 
         df["timestamp"] = parsed
@@ -209,13 +192,9 @@ class NodeDetailWindow(QMainWindow):
             self.end_date.setDate(today)
             return
 
-        self.records_df = self.parse_timestamps(
-            self.records_df
-        )
+        self.records_df = self.parse_timestamps(self.records_df)
 
-        valid_dates = self.records_df.dropna(
-            subset=["timestamp"]
-        )
+        valid_dates = self.records_df.dropna(subset=["timestamp"])
 
         if valid_dates.empty:
             today = QDate.currentDate()
@@ -226,21 +205,11 @@ class NodeDetailWindow(QMainWindow):
         min_date = valid_dates["timestamp"].min()
         max_date = valid_dates["timestamp"].max()
 
-        min_qdate = QDate(
-            min_date.year,
-            min_date.month,
-            min_date.day
-        )
-
-        max_qdate = QDate(
-            max_date.year,
-            max_date.month,
-            max_date.day
-        )
+        min_qdate = QDate(min_date.year, min_date.month, min_date.day)
+        max_qdate = QDate(max_date.year, max_date.month, max_date.day)
 
         self.start_date.setMinimumDate(min_qdate)
         self.start_date.setMaximumDate(max_qdate)
-
         self.end_date.setMinimumDate(min_qdate)
         self.end_date.setMaximumDate(max_qdate)
 
@@ -291,19 +260,11 @@ class NodeDetailWindow(QMainWindow):
 
     def format_number(self, value, decimals=2):
         if value is None or pd.isna(value):
-            return "N/A"
+            return self.t("not_available")
 
         return f"{value:.{decimals}f}"
 
     def update_battery_insight(self, df):
-        """
-        Display Battery Intelligence summary.
-
-        Equivalent cycles are estimated from accumulated charge drop,
-        similar in concept to iPhone battery cycles, but based only on
-        available CSV percentage data.
-        """
-
         insight = calculate_battery_insight(df)
 
         voltage_slope = insight.get("voltage_slope_mv_day")
@@ -314,11 +275,6 @@ class NodeDetailWindow(QMainWindow):
         battery_condition = insight.get("battery_condition")
         battery_stability = insight.get("battery_stability")
         confidence = insight.get("confidence")
-
-        if remaining_days is None:
-            remaining_text = "N/A"
-        else:
-            remaining_text = f"{remaining_days:.0f} days"
 
         health_text = self.format_number(
             battery_health,
@@ -339,41 +295,72 @@ class NodeDetailWindow(QMainWindow):
             f"{self.t('remaining_life')}: {remaining_text} | "
             f"{self.t('replacement_date')}: {replacement_date or self.t('not_available')} | "
             f"{self.t('battery_stability')}: {battery_stability} | "
-            f"{self.t('Prediction Confidence')}: {confidence}"
+            f"{self.t('prediction_confidence')}: {self.t(str(confidence).lower())}"
         )
 
         mode_slopes = insight.get("mode_slopes", {})
 
-        seismic = mode_slopes.get("Seismic")
-        bit = mode_slopes.get("BIT")
-        no_acq = mode_slopes.get("No acquisition")
-
         self.mode_slopes_label.setText(
             "Consumption by mode | "
-            f"Seismic: {self.format_number(seismic)} mV/day | "
-            f"BIT: {self.format_number(bit)} mV/day | "
-            f"No acquisition: {self.format_number(no_acq)} mV/day"
+            f"Seismic: {self.format_number(mode_slopes.get('Seismic'))} mV/day | "
+            f"BIT: {self.format_number(mode_slopes.get('BIT'))} mV/day | "
+            f"No acquisition: {self.format_number(mode_slopes.get('No acquisition'))} mV/day"
         )
 
         return insight
 
     def render_chart_html(self, html):
         temp_dir = Path(tempfile.gettempdir()) / "node_health_analyzer"
-        temp_dir.mkdir(
-            parents=True,
-            exist_ok=True
-        )
+        temp_dir.mkdir(parents=True, exist_ok=True)
 
         html_path = temp_dir / f"node_detail_{uuid.uuid4().hex}.html"
-
-        html_path.write_text(
-            html,
-            encoding="utf-8"
-        )
+        html_path.write_text(html, encoding="utf-8")
 
         self.web_view.load(
             QUrl.fromLocalFile(str(html_path))
         )
+
+    def build_hover_template(self):
+        """
+        Tooltip más claro para el usuario.
+
+        Evita mostrar sólo:
+        (fecha, valor)
+
+        Y muestra información operacional completa.
+        """
+
+        return (
+            f"<b>{self.t('node')}:</b> {self.serial_number}<br>"
+            "<b>Fecha:</b> %{x}<br>"
+            "<b>Voltaje:</b> %{customdata[0]} mV<br>"
+            "<b>Carga:</b> %{customdata[1]} %<br>"
+            "<b>GPS:</b> %{customdata[2]} %<br>"
+            "<b>Temperatura:</b> %{customdata[3]} °C<br>"
+            "<b>Modo:</b> %{customdata[4]}<br>"
+            "<extra></extra>"
+        )
+
+    def get_customdata_columns(self, df):
+        """
+        Garantiza que el tooltip no falle si falta alguna columna.
+        """
+
+        required_columns = [
+            "voltage_mv",
+            "charge_percent",
+            "gps_quality",
+            "temperature_c",
+            "acq_type",
+        ]
+
+        df = df.copy()
+
+        for column in required_columns:
+            if column not in df.columns:
+                df[column] = ""
+
+        return df[required_columns]
 
     def load_metric_chart(self):
         df = self.records_df.copy()
@@ -420,9 +407,7 @@ class NodeDetailWindow(QMainWindow):
                 df["acq_type"] != "No acquisition"
             ]
 
-        df = df.sort_values(
-            by="timestamp"
-        )
+        df = df.sort_values(by="timestamp")
 
         selected_acq = self.acq_filter.currentData()
 
@@ -436,9 +421,7 @@ class NodeDetailWindow(QMainWindow):
             self.end_date.date().toString("dd/MM/yyyy"),
             format="%d/%m/%Y",
             errors="coerce"
-        )
-
-        end_dt = end_dt + pd.Timedelta(days=1)
+        ) + pd.Timedelta(days=1)
 
         df = df[
             (df["timestamp"] >= start_dt)
@@ -447,14 +430,10 @@ class NodeDetailWindow(QMainWindow):
         ]
 
         if selected_acq != "All":
-            df = df[
-                df["acq_type"] == selected_acq
-            ]
+            df = df[df["acq_type"] == selected_acq]
 
         if df.empty:
-            self.web_view.setHtml(
-                "<h3>No records for selected filter</h3>"
-            )
+            self.web_view.setHtml("<h3>No records for selected filter</h3>")
             return
 
         insight = self.update_battery_insight(df)
@@ -467,6 +446,8 @@ class NodeDetailWindow(QMainWindow):
             "No acquisition": "#d62728",
         }
 
+        hover_template = self.build_hover_template()
+
         if selected_acq == "All":
             fig.add_trace(
                 go.Scatter(
@@ -477,14 +458,13 @@ class NodeDetailWindow(QMainWindow):
                     line=dict(
                         color="#444444",
                         width=2
-                    )
+                    ),
+                    hoverinfo="skip"
                 )
             )
 
             for acq_type, color in color_map.items():
-                filtered_df = df[
-                    df["acq_type"] == acq_type
-                ]
+                filtered_df = df[df["acq_type"] == acq_type]
 
                 if filtered_df.empty:
                     continue
@@ -495,6 +475,8 @@ class NodeDetailWindow(QMainWindow):
                         y=filtered_df[metric_column],
                         mode="markers",
                         name=acq_type,
+                        customdata=self.get_customdata_columns(filtered_df),
+                        hovertemplate=hover_template,
                         marker=dict(
                             color=color,
                             size=6
@@ -514,6 +496,8 @@ class NodeDetailWindow(QMainWindow):
                     y=df[metric_column],
                     mode="lines+markers",
                     name=f"{metric['title']} ({selected_acq})",
+                    customdata=self.get_customdata_columns(df),
+                    hovertemplate=hover_template,
                     line=dict(
                         color=color,
                         width=2
@@ -526,13 +510,13 @@ class NodeDetailWindow(QMainWindow):
             )
 
         if metric_column == "voltage_mv":
-            latest_cycle_df = insight.get("analysis_df")
+            analysis_df = insight.get("analysis_df")
             slope = insight.get("voltage_slope_mv_day")
             intercept = insight.get("voltage_intercept")
             start_time = insight.get("voltage_start_time")
 
             trend_df = build_voltage_trend_line(
-                latest_cycle_df,
+                analysis_df,
                 slope,
                 intercept,
                 start_time
@@ -548,41 +532,62 @@ class NodeDetailWindow(QMainWindow):
                         line=dict(
                             dash="dash",
                             width=3
-                        )
+                        ),
+                        hoverinfo="skip"
                     )
                 )
 
             fig.add_hline(
-                 y=insight.get("warning_voltage"),
+                y=insight.get("warning_voltage"),
                 line_dash="dot",
                 annotation_text=self.t("warning_threshold")
             )
 
             fig.add_hline(
-                 y=insight.get("critical_voltage"),
+                y=insight.get("critical_voltage"),
                 line_dash="dash",
                 annotation_text=self.t("critical_threshold")
             )
 
-            replacement_timestamp = insight.get(
-                "replacement_timestamp"
-            )
+            replacement_timestamp = insight.get("replacement_timestamp")
 
             if replacement_timestamp is not None:
+                critical_voltage = insight.get("critical_voltage")
+
+                replacement_label_y = critical_voltage - 80
                 fig.add_trace(
-                    go.Scatter(
+                     go.Scatter(
                         x=[replacement_timestamp],
-                        y=[insight.get("critical_voltage")],
+                        y=[replacement_label_y],
                         mode="markers+text",
                         name=self.t("estimated_replacement"),
                         text=[self.t("estimated_replacement")],
-                        textposition="top center",
+                        textposition="bottom center",
                         marker=dict(
                             size=12,
                             symbol="x"
+                        ),
+                        hovertemplate=(
+                            f"<b>{self.t('estimated_replacement')}</b><br>"
+                            "Fecha: %{x}<br>"
+                            f"{self.t('critical_threshold')}: "
+                            f"{critical_voltage} mV<br>"
+                            "<extra></extra>"
                         )
-                    )
+                     )
                 )
+        marker=dict(
+                            size=12,
+                            symbol="x"
+                        ),
+        hovertemplate=(
+                            f"<b>{self.t('estimated_replacement')}</b><br>"
+                            "Fecha: %{x}<br>"
+                            "Voltaje crítico: %{y} mV<br>"
+                            "<extra></extra>"
+                        )
+
+        
 
         fig.update_layout(
             title=f"{metric['title']} - {self.t('node')} {self.serial_number}",
@@ -590,10 +595,9 @@ class NodeDetailWindow(QMainWindow):
             yaxis_title=metric["axis"],
             template="plotly_white",
             legend_title="Data",
+            hovermode="closest",
         )
 
-        html = fig.to_html(
-            include_plotlyjs=True
-        )
+        html = fig.to_html(include_plotlyjs=True)
 
         self.render_chart_html(html)
