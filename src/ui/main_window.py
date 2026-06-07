@@ -31,24 +31,38 @@ from src.database.database import clear_database
 from src.importers.importer import CSVImporter
 from src.ui.node_detail_window import NodeDetailWindow
 from src.ui.node_comparison_window import NodeComparisonWindow
-from src.translations.translations import TRANSLATIONS
+from src.translations.language_manager import LanguageManager
 
 
 class MainWindow(QMainWindow):
     """
     Main application window.
 
-    Important:
-    - Internal data stays in English/raw CSV values.
-    - Only user interface text is translated.
-    - Classification logic still uses:
+    Important maintenance notes:
+    - Raw CSV/database values are NOT translated.
+    - Only visible UI labels are translated.
+    - Internal classification values remain:
       Excellent, Good, Warning, Critical.
+    - Classification filter uses itemData() for internal values.
     """
 
     def __init__(self):
+        """
+        Initialize main window and global language state.
+
+        __init__ is the constructor of the class.
+        It runs automatically when MainWindow() is created in main.py.
+        """
+
         super().__init__()
 
         self.language = "en"
+
+        # This sets the global language used by child windows
+        # such as NodeDetailWindow and NodeComparisonWindow.
+        LanguageManager.set_language(
+            self.language
+        )
 
         self.setWindowTitle("Node Health Analyzer")
         self.resize(1200, 800)
@@ -56,7 +70,8 @@ class MainWindow(QMainWindow):
         self.importer = CSVImporter()
         self.nodes = []
 
-        # Keep child windows alive.
+        # Keep references to child windows.
+        # Without this, PySide can close windows unexpectedly.
         self.detail_windows = []
         self.comparison_windows = []
 
@@ -64,21 +79,15 @@ class MainWindow(QMainWindow):
 
     def t(self, key):
         """
-        Translate a UI text key using the selected language.
-        Falls back to English or the key itself.
+        Translate a UI key using the global LanguageManager.
         """
-        return TRANSLATIONS.get(
-            self.language,
-            TRANSLATIONS["en"]
-        ).get(
-            key,
-            key
-        )
+        return LanguageManager.translate(key)
 
     def setup_ui(self):
         """
         Build main dashboard interface.
         """
+
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
 
@@ -88,7 +97,8 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.title_label)
 
         # Language selector.
-        # The visible text can change, but the internal value remains en/es/zh.
+        # Visible text: English / Español / 中文.
+        # Internal value: en / es / zh.
         self.language_filter = QComboBox()
         self.language_filter.addItem("English", "en")
         self.language_filter.addItem("Español", "es")
@@ -131,7 +141,7 @@ class MainWindow(QMainWindow):
 
         # Classification filter:
         # Visible text is translated.
-        # Internal itemData remains in English.
+        # itemData remains in English for logic.
         self.classification_filter = QComboBox()
         self.classification_filter.currentIndexChanged.connect(
             self.update_table
@@ -155,9 +165,15 @@ class MainWindow(QMainWindow):
 
     def change_language(self):
         """
-        Change current UI language and refresh visible labels.
+        Change current UI language and update global language manager.
         """
+
         self.language = self.language_filter.currentData()
+
+        LanguageManager.set_language(
+            self.language
+        )
+
         self.apply_language()
         self.update_table()
 
@@ -165,6 +181,7 @@ class MainWindow(QMainWindow):
         """
         Apply translations to all main window controls.
         """
+
         self.setWindowTitle(self.t("app_title"))
         self.title_label.setText(self.t("app_title"))
 
@@ -182,8 +199,9 @@ class MainWindow(QMainWindow):
 
     def update_classification_filter_items(self):
         """
-        Rebuild classification filter without changing internal values.
+        Rebuild classification filter while preserving internal values.
         """
+
         current_value = self.classification_filter.currentData()
 
         if current_value is None:
@@ -207,9 +225,9 @@ class MainWindow(QMainWindow):
 
     def update_table_headers(self):
         """
-        Translate table headers.
-        Raw data values are not modified.
+        Translate dashboard table headers.
         """
+
         self.table.setHorizontalHeaderLabels(
             [
                 self.t("node"),
@@ -227,8 +245,9 @@ class MainWindow(QMainWindow):
 
     def update_labels(self):
         """
-        Refresh translated labels and KPIs.
+        Refresh translated labels and KPI text.
         """
+
         self.nodes_label.setText(
             f"{self.t('nodes_loaded')}: {len(self.nodes)}"
         )
@@ -240,10 +259,14 @@ class MainWindow(QMainWindow):
         """
         Import all CSV files from a selected folder.
 
-        DEVELOPMENT NOTE:
-        clear_database() is used to avoid duplicate records while testing.
-        For production, replace this with duplicate-safe import logic.
+        DEVELOPMENT ONLY:
+        clear_database() avoids duplicate records during repeated tests.
+
+        PRODUCTION TODO:
+        Replace clear_database() with duplicate-safe import if historical
+        data must be preserved between imports.
         """
+
         folder = QFileDialog.getExistingDirectory(
             self,
             self.t("import_folder")
@@ -255,16 +278,12 @@ class MainWindow(QMainWindow):
         self.nodes = []
         self.table.clearContents()
         self.table.setRowCount(0)
-
         self.search_box.clear()
 
         self.classification_filter.blockSignals(True)
         self.classification_filter.setCurrentIndex(0)
         self.classification_filter.blockSignals(False)
 
-        # DEVELOPMENT ONLY:
-        # Remove or replace this in production if historical data
-        # must be preserved between imports.
         clear_database()
 
         self.nodes = self.importer.load_folder(folder)
@@ -273,12 +292,10 @@ class MainWindow(QMainWindow):
 
     def get_filtered_nodes(self):
         """
-        Return nodes filtered by:
-        - serial number search
-        - classification dropdown
-
+        Return nodes filtered by search box and classification.
         Classification uses internal English values.
         """
+
         filtered_nodes = self.nodes
 
         search_text = self.search_box.text().strip()
@@ -303,9 +320,9 @@ class MainWindow(QMainWindow):
 
     def update_health_summary(self):
         """
-        Update translated health summary.
-        Internal classification values remain unchanged.
+        Update translated health summary counts.
         """
+
         excellent = sum(
             1 for node in self.nodes
             if node.get("classification") == "Excellent"
@@ -337,6 +354,7 @@ class MainWindow(QMainWindow):
         """
         Update average voltage and charge KPIs.
         """
+
         if not self.nodes:
             self.kpi_label.setText(
                 f"{self.t('average_voltage')}: 0 mV | "
@@ -372,8 +390,9 @@ class MainWindow(QMainWindow):
 
     def update_table(self):
         """
-        Refresh table using current search/filter state.
+        Refresh table using current filters.
         """
+
         self.table.clearContents()
         self.table.setRowCount(0)
 
@@ -391,9 +410,10 @@ class MainWindow(QMainWindow):
         }
 
         for row, node in enumerate(filtered_nodes):
+
             classification = node.get("classification", "")
 
-            # Display translated classification only in UI.
+            # Display translated classification only.
             # Internal value remains unchanged.
             display_classification = {
                 "Excellent": self.t("excellent"),
@@ -440,6 +460,7 @@ class MainWindow(QMainWindow):
         Export filtered dashboard data to Excel.
         Headers follow selected UI language.
         """
+
         filtered_nodes = self.get_filtered_nodes()
 
         if not filtered_nodes:
@@ -502,6 +523,7 @@ class MainWindow(QMainWindow):
         Export filtered dashboard data to PDF.
         Headers follow selected UI language.
         """
+
         filtered_nodes = self.get_filtered_nodes()
 
         if not filtered_nodes:
@@ -603,6 +625,7 @@ class MainWindow(QMainWindow):
             )
 
             elements.append(table)
+
             doc.build(elements)
 
             QMessageBox.information(
@@ -621,8 +644,9 @@ class MainWindow(QMainWindow):
     def open_node_detail(self, row, column):
         """
         Open node detail window.
-        Uses filtered node list so row index matches visible table.
+        Uses filtered nodes so row index matches visible table.
         """
+
         filtered_nodes = self.get_filtered_nodes()
 
         if row < 0 or row >= len(filtered_nodes):
@@ -639,6 +663,7 @@ class MainWindow(QMainWindow):
         """
         Open comparison window for currently filtered nodes.
         """
+
         if not self.nodes:
             QMessageBox.warning(
                 self,
@@ -659,6 +684,7 @@ class MainWindow(QMainWindow):
         """
         Show application information.
         """
+
         QMessageBox.information(
             self,
             self.t("about"),

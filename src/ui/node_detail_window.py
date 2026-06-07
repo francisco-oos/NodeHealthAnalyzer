@@ -15,9 +15,21 @@ from PySide6.QtWidgets import (
 )
 
 from src.database.database import get_records_by_serial
+from src.translations.language_manager import LanguageManager
 
 
 class NodeDetailWindow(QMainWindow):
+    """
+    Node detail window.
+
+    Important:
+    - Internal CSV/database values are NOT translated.
+    - Only user-visible labels are translated.
+    - Acquisition values remain:
+      Seismic, BIT, No acquisition.
+    - Metric internal values remain:
+      Voltage, Charge, Temperature, GPS Quality.
+    """
 
     def __init__(self, node_data):
         super().__init__()
@@ -28,37 +40,42 @@ class NodeDetailWindow(QMainWindow):
         self.records_df = get_records_by_serial(self.serial_number)
 
         self.setWindowTitle(
-            f"Node Details - {self.serial_number}"
+            f"{self.t('node')} Details - {self.serial_number}"
         )
 
         self.resize(1000, 700)
 
         self.setup_ui()
 
+    def t(self, key):
+        """
+        Translate visible text using the global language manager.
+        """
+        return LanguageManager.translate(key)
+
     def setup_ui(self):
+        """
+        Build node detail interface.
+        """
+
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
 
         layout = QVBoxLayout()
 
-        title = QLabel(
-            f"Node: {self.serial_number}"
-        )
-        layout.addWidget(title)
+        self.title_label = QLabel()
+        layout.addWidget(self.title_label)
 
-        summary = QLabel(
-            f"Voltage: {self.node_data.get('voltage', '')} mV | "
-            f"Charge: {self.node_data.get('charge', '')}% | "
-            f"GPS: {self.node_data.get('gps_quality', '')}% | "
-            f"Health Score: {self.node_data.get('health_score', '')} | "
-            f"Classification: {self.node_data.get('classification', '')}"
-        )
-        layout.addWidget(summary)
+        self.summary_label = QLabel()
+        layout.addWidget(self.summary_label)
 
-        self.available_range_label = QLabel("Available Data: -")
+        self.available_range_label = QLabel()
         layout.addWidget(self.available_range_label)
 
         date_layout = QHBoxLayout()
+
+        self.start_date_label = QLabel()
+        self.end_date_label = QLabel()
 
         self.start_date = QDateEdit()
         self.start_date.setCalendarPopup(True)
@@ -70,37 +87,29 @@ class NodeDetailWindow(QMainWindow):
 
         self.configure_date_range()
 
-        date_layout.addWidget(QLabel("Start Date"))
+        date_layout.addWidget(self.start_date_label)
         date_layout.addWidget(self.start_date)
 
-        date_layout.addWidget(QLabel("End Date"))
+        date_layout.addWidget(self.end_date_label)
         date_layout.addWidget(self.end_date)
 
         layout.addLayout(date_layout)
 
         self.metric_filter = QComboBox()
-        self.metric_filter.addItems(
-            [
-                "Voltage",
-                "Charge",
-                "Temperature",
-                "GPS Quality",
-            ]
-        )
+        self.metric_filter.addItem(self.t("voltage"), "Voltage")
+        self.metric_filter.addItem(self.t("charge"), "Charge")
+        self.metric_filter.addItem(self.t("temperature"), "Temperature")
+        self.metric_filter.addItem(self.t("gps_quality"), "GPS Quality")
         layout.addWidget(self.metric_filter)
 
         self.acq_filter = QComboBox()
-        self.acq_filter.addItems(
-            [
-                "All",
-                "Seismic",
-                "BIT",
-                "No acquisition",
-            ]
-        )
+        self.acq_filter.addItem(self.t("all"), "All")
+        self.acq_filter.addItem(self.t("seismic"), "Seismic")
+        self.acq_filter.addItem(self.t("bit"), "BIT")
+        self.acq_filter.addItem(self.t("no_acquisition"), "No acquisition")
         layout.addWidget(self.acq_filter)
 
-        self.apply_filter_button = QPushButton("Apply Filter")
+        self.apply_filter_button = QPushButton()
         self.apply_filter_button.clicked.connect(
             self.load_metric_chart
         )
@@ -111,9 +120,43 @@ class NodeDetailWindow(QMainWindow):
 
         central_widget.setLayout(layout)
 
+        self.apply_language()
         self.load_metric_chart()
 
+    def apply_language(self):
+        """
+        Apply translations to static visible labels.
+        """
+        self.setWindowTitle(
+            f"{self.t('node')} Details - {self.serial_number}"
+        )
+
+        self.title_label.setText(
+            f"{self.t('node')}: {self.serial_number}"
+        )
+
+        self.summary_label.setText(
+            f"{self.t('voltage')}: {self.node_data.get('voltage', '')} mV | "
+            f"{self.t('charge')}: {self.node_data.get('charge', '')}% | "
+            f"GPS: {self.node_data.get('gps_quality', '')}% | "
+            f"{self.t('health_score')}: {self.node_data.get('health_score', '')} | "
+            f"{self.t('classification')}: {self.node_data.get('classification', '')}"
+        )
+
+        self.start_date_label.setText(self.t("start_date"))
+        self.end_date_label.setText(self.t("end_date"))
+        self.apply_filter_button.setText(self.t("apply_filter"))
+
     def parse_timestamps(self, df):
+        """
+        Parse Sercel/SQLite timestamps.
+
+        Supported:
+        - dd/mm/yyyy HH:MM:SS
+        - dd/mm/yyyy HH:MM
+        - yyyy-mm-dd HH:MM:SS
+        """
+
         df = df.copy()
 
         if pd.api.types.is_datetime64_any_dtype(df["timestamp"]):
@@ -153,13 +196,14 @@ class NodeDetailWindow(QMainWindow):
         return df
 
     def configure_date_range(self):
+        """
+        Configure min/max date based on node records.
+        """
+
         if self.records_df.empty:
             today = QDate.currentDate()
             self.start_date.setDate(today)
             self.end_date.setDate(today)
-            self.available_range_label.setText(
-                "Available Data: no records found"
-            )
             return
 
         self.records_df = self.parse_timestamps(
@@ -174,9 +218,6 @@ class NodeDetailWindow(QMainWindow):
             today = QDate.currentDate()
             self.start_date.setDate(today)
             self.end_date.setDate(today)
-            self.available_range_label.setText(
-                "Available Data: no valid dates found"
-            )
             return
 
         min_date = valid_dates["timestamp"].min()
@@ -204,43 +245,45 @@ class NodeDetailWindow(QMainWindow):
         self.end_date.setDate(max_qdate)
 
         self.available_range_label.setText(
-            "Available Data: "
+            f"{self.t('available_data')}: "
             f"{min_date.strftime('%d/%m/%Y %H:%M')} "
             "to "
             f"{max_date.strftime('%d/%m/%Y %H:%M')}"
         )
 
     def get_metric_config(self):
-        selected_metric = self.metric_filter.currentText()
+        """
+        Return selected metric config.
+        Combo display text may be translated.
+        itemData keeps internal value.
+        """
+
+        selected_metric = self.metric_filter.currentData()
 
         metric_config = {
             "Voltage": {
                 "column": "voltage_mv",
-                "title": "Voltage History",
+                "title": self.t("voltage"),
                 "axis": "Voltage (mV)",
-                "trend_name": "Voltage trend",
-                "unit": "mV",
+                "trend_name": f"{self.t('voltage')} trend",
             },
             "Charge": {
                 "column": "charge_percent",
-                "title": "Charge History",
+                "title": self.t("charge"),
                 "axis": "Charge (%)",
-                "trend_name": "Charge trend",
-                "unit": "%",
+                "trend_name": f"{self.t('charge')} trend",
             },
             "Temperature": {
                 "column": "temperature_c",
-                "title": "Temperature History",
+                "title": self.t("temperature"),
                 "axis": "Temperature (°C)",
-                "trend_name": "Temperature trend",
-                "unit": "°C",
+                "trend_name": f"{self.t('temperature')} trend",
             },
             "GPS Quality": {
                 "column": "gps_quality",
-                "title": "GPS Quality History",
+                "title": self.t("gps_quality"),
                 "axis": "GPS Quality (%)",
-                "trend_name": "GPS Quality trend",
-                "unit": "%",
+                "trend_name": f"{self.t('gps_quality')} trend",
             },
         }
 
@@ -250,6 +293,10 @@ class NodeDetailWindow(QMainWindow):
         )
 
     def load_metric_chart(self):
+        """
+        Load and render selected metric chart.
+        """
+
         df = self.records_df.copy()
 
         if df.empty:
@@ -265,30 +312,32 @@ class NodeDetailWindow(QMainWindow):
             df[metric_column],
             errors="coerce"
         )
+
+        df = df.dropna(
+            subset=["timestamp", metric_column]
+        )
+
+        # Charge sometimes reports 0 or invalid values during no acquisition.
+        # These points distort battery interpretation.
         if metric_column == "charge_percent":
             df = df[
                 (df["charge_percent"] > 0)
                 &
                 (df["acq_type"] != "No acquisition")
-    ]
+            ]
 
+        # GPS during no acquisition is usually not useful
+        # for operational acquisition analysis.
         if metric_column == "gps_quality":
             df = df[
                 df["acq_type"] != "No acquisition"
             ]
-        df = df.dropna(
-            subset=["timestamp", metric_column]
-        )
 
-        if metric_column == "charge_percent":
-            df = df[
-                    df["charge_percent"] > 0
-            ]
         df = df.sort_values(
             by="timestamp"
         )
 
-        selected_acq = self.acq_filter.currentText()
+        selected_acq = self.acq_filter.currentData()
 
         start_dt = pd.to_datetime(
             self.start_date.date().toString("dd/MM/yyyy"),
@@ -311,7 +360,9 @@ class NodeDetailWindow(QMainWindow):
         ]
 
         if selected_acq != "All":
-            df = df[df["acq_type"] == selected_acq]
+            df = df[
+                df["acq_type"] == selected_acq
+            ]
 
         if df.empty:
             self.web_view.setHtml(
@@ -342,7 +393,9 @@ class NodeDetailWindow(QMainWindow):
             )
 
             for acq_type, color in color_map.items():
-                filtered_df = df[df["acq_type"] == acq_type]
+                filtered_df = df[
+                    df["acq_type"] == acq_type
+                ]
 
                 if filtered_df.empty:
                     continue
@@ -371,7 +424,7 @@ class NodeDetailWindow(QMainWindow):
                     x=df["timestamp"],
                     y=df[metric_column],
                     mode="lines+markers",
-                    name=f"{self.metric_filter.currentText()} ({selected_acq})",
+                    name=f"{metric['title']} ({selected_acq})",
                     line=dict(
                         color=color,
                         width=2
@@ -384,7 +437,7 @@ class NodeDetailWindow(QMainWindow):
             )
 
         fig.update_layout(
-            title=f"{metric['title']} - Node {self.serial_number}",
+            title=f"{metric['title']} - {self.t('node')} {self.serial_number}",
             xaxis_title="Time",
             yaxis_title=metric["axis"],
             template="plotly_white",
