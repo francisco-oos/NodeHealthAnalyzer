@@ -19,8 +19,6 @@ from PySide6.QtWidgets import (
 )
 
 from src.analysis.battery_life import (
-    CRITICAL_VOLTAGE_MV,
-    WARNING_VOLTAGE_MV,
     build_voltage_trend_line,
     calculate_battery_insight,
 )
@@ -341,7 +339,7 @@ class NodeDetailWindow(QMainWindow):
             f"{self.t('remaining_life')}: {remaining_text} | "
             f"{self.t('replacement_date')}: {replacement_date or self.t('not_available')} | "
             f"{self.t('battery_stability')}: {battery_stability} | "
-            f"{self.t('confidence')}: {confidence}"
+            f"{self.t('Prediction Confidence')}: {confidence}"
         )
 
         mode_slopes = insight.get("mode_slopes", {})
@@ -555,13 +553,13 @@ class NodeDetailWindow(QMainWindow):
                 )
 
             fig.add_hline(
-                y=WARNING_VOLTAGE_MV,
+                 y=insight.get("warning_voltage"),
                 line_dash="dot",
                 annotation_text=self.t("warning_threshold")
             )
 
             fig.add_hline(
-                y=CRITICAL_VOLTAGE_MV,
+                 y=insight.get("critical_voltage"),
                 line_dash="dash",
                 annotation_text=self.t("critical_threshold")
             )
@@ -574,7 +572,7 @@ class NodeDetailWindow(QMainWindow):
                 fig.add_trace(
                     go.Scatter(
                         x=[replacement_timestamp],
-                        y=[CRITICAL_VOLTAGE_MV],
+                        y=[insight.get("critical_voltage")],
                         mode="markers+text",
                         name=self.t("estimated_replacement"),
                         text=[self.t("estimated_replacement")],

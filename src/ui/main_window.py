@@ -33,6 +33,7 @@ from src.ui.node_detail_window import NodeDetailWindow
 from src.ui.node_comparison_window import NodeComparisonWindow
 from src.translations.language_manager import LanguageManager
 from src.licensing.trial_manager import TrialManager
+from src.ui.settings_window import SettingsWindow
 
 class MainWindow(QMainWindow):
     """
@@ -74,7 +75,7 @@ class MainWindow(QMainWindow):
         # Without this, PySide can close windows unexpectedly.
         self.detail_windows = []
         self.comparison_windows = []
-
+        self.settings_windows = []
         self.setup_ui()
 
     def t(self, key):
@@ -125,6 +126,9 @@ class MainWindow(QMainWindow):
             self.open_node_comparison
         )
         layout.addWidget(self.compare_button)
+        self.settings_button = QPushButton("Battery Settings")
+        self.settings_button.clicked.connect(self.open_settings)
+        layout.addWidget(self.settings_button)
 
         self.nodes_label = QLabel()
         layout.addWidget(self.nodes_label)
@@ -710,3 +714,12 @@ class MainWindow(QMainWindow):
             "Technologies:\n"
             "Python, PySide6, Pandas, Plotly, SQLite, ReportLab"
         )
+    def open_settings(self):
+        """
+        Open Battery Intelligence settings window.
+        """
+
+        settings_window = SettingsWindow()
+        settings_window.show()
+
+        self.settings_windows.append(settings_window)

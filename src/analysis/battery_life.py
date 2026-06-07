@@ -2,13 +2,9 @@ from datetime import timedelta
 
 import pandas as pd
 
+from src.database.database import get_app_settings
 
-OPTIMAL_VOLTAGE_MV = 4200
-WARNING_VOLTAGE_MV = 3700
-CRITICAL_VOLTAGE_MV = 3600
 
-# Saltos mayores a esto se consideran eventos/picos,
-# no necesariamente ciclos reales de batería.
 SPIKE_JUMP_MV = 120
 
 
@@ -16,12 +12,12 @@ def prepare_battery_dataframe(df):
     """
     Prepare dataframe for battery analysis.
 
-    This function standardizes:
-    - timestamps
-    - voltage values
-    - charge percentage values
+    Standardizes:
+    - timestamp
+    - voltage_mv
+    - charge_percent
 
-    It does not modify the original dataframe.
+    The original dataframe is not modified.
     """
 
     df = df.copy()
@@ -53,11 +49,10 @@ def prepare_battery_dataframe(df):
 
 def get_operational_voltage_data(df):
     """
-    Return data useful for battery discharge analysis.
+    Return records useful for discharge analysis.
 
-    For V1.1 we avoid using 'No acquisition' for slope prediction,
-    because those points often create vertical spikes or special readings
-    that distort the real discharge trend.
+    Seismic and BIT are preferred because No acquisition
+    may contain special readings or spikes.
     """
 
     df = prepare_battery_dataframe(df)
@@ -75,11 +70,9 @@ def get_operational_voltage_data(df):
 
 def remove_voltage_spikes(df):
     """
-    Remove isolated voltage spikes.
+    Remove isolated voltage spikes from analysis data.
 
-    A spike is a sudden jump up or down that can distort the trend.
-    This does not mean the data is bad; it only means it should not be
-    used for the simple V1.1 prediction model.
+    This avoids distorted trend lines and unrealistic predictions.
     """
 
     df = df.copy()
@@ -98,25 +91,30 @@ def remove_voltage_spikes(df):
     return cleaned_df
 
 
-def calculate_battery_health(current_voltage):
+def calculate_battery_health(
+    current_voltage,
+    optimal_voltage,
+    critical_voltage
+):
     """
-    Estimate battery health percentage.
+    Estimate operational battery health percentage.
 
-    This is NOT a real chemical battery-health measurement.
-    It is an operational estimate based on where the current voltage sits
-    between an expected optimal voltage and the critical voltage.
-
-    4200 mV = 100%
-    3600 mV = 0%
+    This is not chemical battery capacity.
+    It estimates where current voltage sits between:
+    - configured optimal voltage
+    - configured critical voltage
     """
 
     if current_voltage is None or pd.isna(current_voltage):
         return None
 
+    if optimal_voltage <= critical_voltage:
+        return None
+
     health = (
-        (current_voltage - CRITICAL_VOLTAGE_MV)
+        (current_voltage - critical_voltage)
         /
-        (OPTIMAL_VOLTAGE_MV - CRITICAL_VOLTAGE_MV)
+        (optimal_voltage - critical_voltage)
     ) * 100
 
     health = max(0, min(100, health))
@@ -126,7 +124,7 @@ def calculate_battery_health(current_voltage):
 
 def classify_battery_condition(battery_health):
     """
-    Convert battery health percentage into operational condition.
+    Convert battery health percentage into an operational label.
     """
 
     if battery_health is None or pd.isna(battery_health):
@@ -152,7 +150,9 @@ def calculate_slope_per_day(df, column):
     -8.5 means the node loses 8.5 mV per day.
 
     Returns:
-    slope, intercept, start_time
+    - slope
+    - intercept
+    - start_time
     """
 
     df = df.dropna(
@@ -192,16 +192,16 @@ def calculate_slope_per_day(df, column):
 
 def calculate_battery_stability(df):
     """
-    Estimate battery stability based on voltage variability.
+    Estimate voltage stability.
 
     Stable:
-    smooth discharge
+    smooth voltage behavior
 
     Moderate:
-    some jumps or irregularity
+    some voltage jumps
 
     Unstable:
-    many voltage jumps or inconsistent readings
+    many voltage jumps
     """
 
     df = df.copy()
@@ -217,6 +217,9 @@ def calculate_battery_stability(df):
 
     total_records = len(df)
 
+    if total_records == 0:
+        return "Low", "Unknown"
+
     spike_ratio = spike_count / total_records
 
     if spike_ratio <= 0.01:
@@ -230,13 +233,13 @@ def calculate_battery_stability(df):
 
 def calculate_confidence(df, slope, stability):
     """
-    Basic confidence level for the prediction.
+    Estimate prediction confidence.
 
     Confidence depends on:
-    - record count
+    - amount of data
     - time span
     - negative discharge slope
-    - voltage stability
+    - stability
     """
 
     if df.empty or slope is None:
@@ -266,14 +269,18 @@ def calculate_confidence(df, slope, stability):
     return "Low"
 
 
-def estimate_remaining_life(current_voltage, voltage_slope, latest_time):
+def estimate_remaining_life(
+    current_voltage,
+    voltage_slope,
+    latest_time,
+    critical_voltage
+):
     """
-    Estimate remaining days until critical voltage.
+    Estimate remaining days until configured critical voltage.
 
     Formula:
-    remaining_days = (current_voltage - critical_voltage) / abs(slope)
-
-    This only works if slope is negative.
+    remaining_days =
+    (current_voltage - critical_voltage) / abs(voltage_slope)
     """
 
     if (
@@ -281,12 +288,12 @@ def estimate_remaining_life(current_voltage, voltage_slope, latest_time):
         or pd.isna(current_voltage)
         or voltage_slope is None
         or voltage_slope >= 0
-        or current_voltage <= CRITICAL_VOLTAGE_MV
+        or current_voltage <= critical_voltage
     ):
         return None, "", None
 
     remaining_days = (
-        current_voltage - CRITICAL_VOLTAGE_MV
+        current_voltage - critical_voltage
     ) / abs(voltage_slope)
 
     replacement_timestamp = latest_time + timedelta(
@@ -297,22 +304,118 @@ def estimate_remaining_life(current_voltage, voltage_slope, latest_time):
         "%d/%m/%Y"
     )
 
-    return remaining_days, replacement_date, replacement_timestamp
+    return (
+        remaining_days,
+        replacement_date,
+        replacement_timestamp
+    )
+
+
+def validate_prediction(
+    remaining_days,
+    voltage_slope,
+    settings
+):
+    """
+    Prevent unrealistic predictions.
+
+    Example:
+    If result says replacement in 2041,
+    but manufacturer expected life is 4 years,
+    prediction is marked as not reliable.
+    """
+
+    if remaining_days is None or voltage_slope is None:
+        return False, "No prediction"
+
+    minimum_discharge = float(
+        settings.get(
+            "minimum_valid_discharge_mv_day",
+            0.5
+        )
+    )
+
+    manufacturer_life_years = float(
+        settings.get(
+            "manufacturer_life_years",
+            4
+        )
+    )
+
+    manufacturer_limit_days = (
+        manufacturer_life_years * 365
+    )
+
+    if abs(voltage_slope) < minimum_discharge:
+        return (
+            False,
+            "Discharge rate too small"
+        )
+
+    if remaining_days > manufacturer_limit_days:
+        return (
+            False,
+            "Prediction exceeds manufacturer life"
+        )
+
+    return True, ""
+
+
+def generate_recommendation(
+    remaining_days,
+    prediction_valid,
+    battery_condition,
+    confidence,
+    settings
+):
+    """
+    Generate operational recommendation.
+
+    This is the user-facing decision helper.
+    """
+
+    if not prediction_valid:
+        return "Prediction not reliable"
+
+    alert_days = int(
+        settings.get(
+            "replacement_alert_days",
+            90
+        )
+    )
+
+    if battery_condition == "Critical":
+        return "Replace battery soon"
+
+    if remaining_days is not None and remaining_days <= 30:
+        return "Replace battery soon"
+
+    if remaining_days is not None and remaining_days <= alert_days:
+        return "Plan battery replacement"
+
+    if confidence == "Low":
+        return "Monitor trend"
+
+    return "Normal operation"
 
 
 def calculate_mode_slopes(df):
     """
     Calculate voltage discharge slope by acquisition mode.
 
-    This helps answer:
-    - Does Seismic drain faster?
-    - Does BIT consume differently?
-    - Is No acquisition behaving abnormally?
+    Helps compare:
+    - Seismic consumption
+    - BIT consumption
+    - No acquisition behavior
     """
 
     results = {}
 
     for acq_type in ["Seismic", "BIT", "No acquisition"]:
+        if "acq_type" not in df.columns:
+            results[acq_type] = None
+            continue
+
         mode_df = df[
             df["acq_type"] == acq_type
         ].copy()
@@ -333,15 +436,31 @@ def calculate_battery_insight(df):
     """
     Main Battery Intelligence calculation for V1.1.
 
-    This model is intentionally simple and transparent:
-    - uses operational voltage behavior
-    - removes obvious spikes
-    - estimates health from voltage position
-    - calculates discharge slope
-    - estimates remaining life to critical voltage
+    Uses configurable settings from SQLite:
+    - optimal voltage
+    - warning voltage
+    - critical voltage
+    - manufacturer expected life
+    - replacement alert days
+    - minimum valid discharge rate
 
-    It does NOT claim real chemical battery capacity.
+    This model is transparent and operational.
+    It does not claim real chemical battery capacity.
     """
+
+    settings = get_app_settings()
+
+    optimal_voltage = float(
+        settings.get("optimal_voltage_mv", 4200)
+    )
+
+    warning_voltage = float(
+        settings.get("warning_voltage_mv", 3700)
+    )
+
+    critical_voltage = float(
+        settings.get("critical_voltage_mv", 3600)
+    )
 
     prepared_df = prepare_battery_dataframe(df)
 
@@ -360,9 +479,12 @@ def calculate_battery_insight(df):
             "replacement_timestamp": None,
             "battery_stability": "Unknown",
             "confidence": "Low",
-            "critical_voltage": CRITICAL_VOLTAGE_MV,
-            "warning_voltage": WARNING_VOLTAGE_MV,
-            "optimal_voltage": OPTIMAL_VOLTAGE_MV,
+            "prediction_valid": False,
+            "prediction_note": "No data",
+            "recommendation": "Prediction not reliable",
+            "critical_voltage": critical_voltage,
+            "warning_voltage": warning_voltage,
+            "optimal_voltage": optimal_voltage,
             "mode_slopes": {},
             "analysis_df": prepared_df,
         }
@@ -374,7 +496,9 @@ def calculate_battery_insight(df):
     latest_time = latest_row.get("timestamp")
 
     battery_health = calculate_battery_health(
-        current_voltage
+        current_voltage,
+        optimal_voltage,
+        critical_voltage
     )
 
     battery_condition = classify_battery_condition(
@@ -422,8 +546,28 @@ def calculate_battery_insight(df):
         estimate_remaining_life(
             current_voltage,
             voltage_slope,
-            latest_time
+            latest_time,
+            critical_voltage
         )
+    )
+
+    prediction_valid, prediction_note = validate_prediction(
+        remaining_days,
+        voltage_slope,
+        settings
+    )
+
+    if not prediction_valid:
+        remaining_days = None
+        replacement_date = ""
+        replacement_timestamp = None
+
+    recommendation = generate_recommendation(
+        remaining_days,
+        prediction_valid,
+        battery_condition,
+        confidence,
+        settings
     )
 
     mode_slopes = calculate_mode_slopes(
@@ -444,9 +588,12 @@ def calculate_battery_insight(df):
         "replacement_timestamp": replacement_timestamp,
         "battery_stability": battery_stability,
         "confidence": confidence,
-        "critical_voltage": CRITICAL_VOLTAGE_MV,
-        "warning_voltage": WARNING_VOLTAGE_MV,
-        "optimal_voltage": OPTIMAL_VOLTAGE_MV,
+        "prediction_valid": prediction_valid,
+        "prediction_note": prediction_note,
+        "recommendation": recommendation,
+        "critical_voltage": critical_voltage,
+        "warning_voltage": warning_voltage,
+        "optimal_voltage": optimal_voltage,
         "mode_slopes": mode_slopes,
         "analysis_df": cleaned_df,
     }
@@ -456,10 +603,16 @@ def build_voltage_trend_line(df, slope, intercept, start_time):
     """
     Build voltage trend line for plotting.
 
-    The trend uses the cleaned analysis dataframe.
+    Uses cleaned analysis dataframe.
     """
 
-    if df.empty or slope is None or intercept is None or start_time is None:
+    if (
+        df is None
+        or df.empty
+        or slope is None
+        or intercept is None
+        or start_time is None
+    ):
         return None
 
     trend_df = df.copy()
