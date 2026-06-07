@@ -32,7 +32,7 @@ from src.importers.importer import CSVImporter
 from src.ui.node_detail_window import NodeDetailWindow
 from src.ui.node_comparison_window import NodeComparisonWindow
 from src.translations.language_manager import LanguageManager
-
+from src.licensing.trial_manager import TrialManager
 
 class MainWindow(QMainWindow):
     """
@@ -684,12 +684,17 @@ class MainWindow(QMainWindow):
         """
         Show application information.
         """
-
+        is_valid, days_used, days_remaining, install_date = (
+            TrialManager.get_trial_status()
+        )
         QMessageBox.information(
             self,
             self.t("about"),
             "Node Health Analyzer\n\n"
-            "Version: 1.0.0 Release Candidate\n\n"
+            f"Version: 1.0.0 Trial\n"
+            f"Install Date: {install_date}\n"
+            f"Days Used: {days_used}\n"
+            f"Days Remaining: {days_remaining}\n\n"
             "Desktop application for Sercel seismic node "
             "battery health monitoring, CSV analysis, node comparison, "
             "and operational reporting.\n\n"

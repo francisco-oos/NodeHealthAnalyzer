@@ -22,15 +22,20 @@ def main():
 
     app = QApplication(sys.argv)
 
-    is_valid, days_used, days_remaining, install_date = (
-        TrialManager.get_trial_status()
-    )
+    (
+        is_valid,
+        days_used,
+        days_remaining,
+        install_date,
+        error_message
+    ) = TrialManager.get_trial_status()
 
     if not is_valid:
         QMessageBox.critical(
             None,
-            "Trial Expired",
-            "Node Health Analyzer Trial has expired.\n\n"
+            "Trial Not Valid",
+            "Node Health Analyzer Trial cannot continue.\n\n"
+            f"Reason: {error_message}\n\n"
             "Please contact the developer for a licensed version."
         )
 
