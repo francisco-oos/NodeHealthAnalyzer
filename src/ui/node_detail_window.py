@@ -312,8 +312,9 @@ class NodeDetailWindow(QMainWindow):
         charge_slope = insight.get("charge_slope_percent_day")
         remaining_days = insight.get("remaining_days")
         replacement_date = insight.get("replacement_date")
-        physical_cycles = insight.get("physical_cycles")
-        equivalent_cycles = insight.get("equivalent_cycles")
+        battery_health = insight.get("battery_health")
+        battery_condition = insight.get("battery_condition")
+        battery_stability = insight.get("battery_stability")
         confidence = insight.get("confidence")
 
         if remaining_days is None:
@@ -321,15 +322,26 @@ class NodeDetailWindow(QMainWindow):
         else:
             remaining_text = f"{remaining_days:.0f} days"
 
+        health_text = self.format_number(
+            battery_health,
+            decimals=0
+        )
+
+        if remaining_days is None:
+            remaining_text = self.t("not_available")
+        else:
+            remaining_text = f"{remaining_days:.0f} {self.t('days')}"
+
         self.battery_insight_label.setText(
-            "Battery Insight | "
-            f"Voltage drop: {self.format_number(voltage_slope)} mV/day | "
-            f"Charge drop: {self.format_number(charge_slope)} %/day | "
-            f"Remaining life: {remaining_text} | "
-            f"Replacement: {replacement_date or 'N/A'} | "
-            f"Voltage cycles: {physical_cycles} | "
-            f"Equivalent cycles: {equivalent_cycles:.2f} | "
-            f"Confidence: {confidence}"
+            f"{self.t('battery_insight')} | "
+            f"{self.t('battery_health')}: {health_text}% | "
+            f"{self.t('battery_condition')}: {battery_condition} | "
+            f"{self.t('discharge_rate')}: {self.format_number(voltage_slope)} mV/day | "
+            f"{self.t('charge_drop_rate')}: {self.format_number(charge_slope)} %/day | "
+            f"{self.t('remaining_life')}: {remaining_text} | "
+            f"{self.t('replacement_date')}: {replacement_date or self.t('not_available')} | "
+            f"{self.t('battery_stability')}: {battery_stability} | "
+            f"{self.t('confidence')}: {confidence}"
         )
 
         mode_slopes = insight.get("mode_slopes", {})
@@ -516,7 +528,7 @@ class NodeDetailWindow(QMainWindow):
             )
 
         if metric_column == "voltage_mv":
-            latest_cycle_df = insight.get("latest_cycle_df")
+            latest_cycle_df = insight.get("analysis_df")
             slope = insight.get("voltage_slope_mv_day")
             intercept = insight.get("voltage_intercept")
             start_time = insight.get("voltage_start_time")
@@ -534,7 +546,7 @@ class NodeDetailWindow(QMainWindow):
                         x=trend_df["timestamp"],
                         y=trend_df["trend_voltage"],
                         mode="lines",
-                        name="Voltage trend",
+                        name=self.t("voltage_trend"),
                         line=dict(
                             dash="dash",
                             width=3
@@ -545,13 +557,13 @@ class NodeDetailWindow(QMainWindow):
             fig.add_hline(
                 y=WARNING_VOLTAGE_MV,
                 line_dash="dot",
-                annotation_text="Warning threshold"
+                annotation_text=self.t("warning_threshold")
             )
 
             fig.add_hline(
                 y=CRITICAL_VOLTAGE_MV,
                 line_dash="dash",
-                annotation_text="Critical threshold"
+                annotation_text=self.t("critical_threshold")
             )
 
             replacement_timestamp = insight.get(
@@ -564,8 +576,8 @@ class NodeDetailWindow(QMainWindow):
                         x=[replacement_timestamp],
                         y=[CRITICAL_VOLTAGE_MV],
                         mode="markers+text",
-                        name="Estimated replacement",
-                        text=["Replacement"],
+                        name=self.t("estimated_replacement"),
+                        text=[self.t("estimated_replacement")],
                         textposition="top center",
                         marker=dict(
                             size=12,
