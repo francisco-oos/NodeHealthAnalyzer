@@ -1,3 +1,7 @@
+from pathlib import Path
+import tempfile
+import uuid
+
 import pandas as pd
 import plotly.graph_objects as go
 
@@ -14,25 +18,24 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
 )
 
+from src.analysis.battery_life import (
+    CRITICAL_VOLTAGE_MV,
+    WARNING_VOLTAGE_MV,
+    build_voltage_trend_line,
+    calculate_battery_insight,
+)
 from src.database.database import get_records_by_serial
 from src.translations.language_manager import LanguageManager
-from pathlib import Path
-import tempfile
-import uuid
 
-from PySide6.QtCore import QDate, QUrl
 
 class NodeDetailWindow(QMainWindow):
     """
-    Node detail window.
+    Node detail window with Battery Intelligence.
 
     Important:
-    - Internal CSV/database values are NOT translated.
-    - Only user-visible labels are translated.
-    - Acquisition values remain:
-      Seismic, BIT, No acquisition.
-    - Metric internal values remain:
-      Voltage, Charge, Temperature, GPS Quality.
+    - Raw CSV/database values are not translated.
+    - Only visible UI labels are translated.
+    - Battery prediction is simple V1.1 logic, not ML yet.
     """
 
     def __init__(self, node_data):
@@ -41,27 +44,22 @@ class NodeDetailWindow(QMainWindow):
         self.node_data = node_data
         self.serial_number = node_data.get("serial_number", "")
 
-        self.records_df = get_records_by_serial(self.serial_number)
+        self.records_df = get_records_by_serial(
+            self.serial_number
+        )
 
         self.setWindowTitle(
             f"{self.t('node')} Details - {self.serial_number}"
         )
 
-        self.resize(1000, 700)
+        self.resize(1100, 760)
 
         self.setup_ui()
 
     def t(self, key):
-        """
-        Translate visible text using the global language manager.
-        """
         return LanguageManager.translate(key)
 
     def setup_ui(self):
-        """
-        Build node detail interface.
-        """
-
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
 
@@ -72,6 +70,14 @@ class NodeDetailWindow(QMainWindow):
 
         self.summary_label = QLabel()
         layout.addWidget(self.summary_label)
+
+        self.battery_insight_label = QLabel()
+        self.battery_insight_label.setWordWrap(True)
+        layout.addWidget(self.battery_insight_label)
+
+        self.mode_slopes_label = QLabel()
+        self.mode_slopes_label.setWordWrap(True)
+        layout.addWidget(self.mode_slopes_label)
 
         self.available_range_label = QLabel()
         layout.addWidget(self.available_range_label)
@@ -110,7 +116,10 @@ class NodeDetailWindow(QMainWindow):
         self.acq_filter.addItem(self.t("all"), "All")
         self.acq_filter.addItem(self.t("seismic"), "Seismic")
         self.acq_filter.addItem(self.t("bit"), "BIT")
-        self.acq_filter.addItem(self.t("no_acquisition"), "No acquisition")
+        self.acq_filter.addItem(
+            self.t("no_acquisition"),
+            "No acquisition"
+        )
         layout.addWidget(self.acq_filter)
 
         self.apply_filter_button = QPushButton()
@@ -128,9 +137,6 @@ class NodeDetailWindow(QMainWindow):
         self.load_metric_chart()
 
     def apply_language(self):
-        """
-        Apply translations to static visible labels.
-        """
         self.setWindowTitle(
             f"{self.t('node')} Details - {self.serial_number}"
         )
@@ -147,20 +153,19 @@ class NodeDetailWindow(QMainWindow):
             f"{self.t('classification')}: {self.node_data.get('classification', '')}"
         )
 
-        self.start_date_label.setText(self.t("start_date"))
-        self.end_date_label.setText(self.t("end_date"))
-        self.apply_filter_button.setText(self.t("apply_filter"))
+        self.start_date_label.setText(
+            self.t("start_date")
+        )
+
+        self.end_date_label.setText(
+            self.t("end_date")
+        )
+
+        self.apply_filter_button.setText(
+            self.t("apply_filter")
+        )
 
     def parse_timestamps(self, df):
-        """
-        Parse Sercel/SQLite timestamps.
-
-        Supported:
-        - dd/mm/yyyy HH:MM:SS
-        - dd/mm/yyyy HH:MM
-        - yyyy-mm-dd HH:MM:SS
-        """
-
         df = df.copy()
 
         if pd.api.types.is_datetime64_any_dtype(df["timestamp"]):
@@ -200,10 +205,6 @@ class NodeDetailWindow(QMainWindow):
         return df
 
     def configure_date_range(self):
-        """
-        Configure min/max date based on node records.
-        """
-
         if self.records_df.empty:
             today = QDate.currentDate()
             self.start_date.setDate(today)
@@ -256,12 +257,6 @@ class NodeDetailWindow(QMainWindow):
         )
 
     def get_metric_config(self):
-        """
-        Return selected metric config.
-        Combo display text may be translated.
-        itemData keeps internal value.
-        """
-
         selected_metric = self.metric_filter.currentData()
 
         metric_config = {
@@ -269,25 +264,25 @@ class NodeDetailWindow(QMainWindow):
                 "column": "voltage_mv",
                 "title": self.t("voltage"),
                 "axis": "Voltage (mV)",
-                "trend_name": f"{self.t('voltage')} trend",
+                "trend_name": f"{self.t('voltage')} real",
             },
             "Charge": {
                 "column": "charge_percent",
                 "title": self.t("charge"),
                 "axis": "Charge (%)",
-                "trend_name": f"{self.t('charge')} trend",
+                "trend_name": f"{self.t('charge')} real",
             },
             "Temperature": {
                 "column": "temperature_c",
                 "title": self.t("temperature"),
                 "axis": "Temperature (°C)",
-                "trend_name": f"{self.t('temperature')} trend",
+                "trend_name": f"{self.t('temperature')} real",
             },
             "GPS Quality": {
                 "column": "gps_quality",
                 "title": self.t("gps_quality"),
                 "axis": "GPS Quality (%)",
-                "trend_name": f"{self.t('gps_quality')} trend",
+                "trend_name": f"{self.t('gps_quality')} real",
             },
         }
 
@@ -295,14 +290,64 @@ class NodeDetailWindow(QMainWindow):
             selected_metric,
             metric_config["Voltage"]
         )
+
+    def format_number(self, value, decimals=2):
+        if value is None or pd.isna(value):
+            return "N/A"
+
+        return f"{value:.{decimals}f}"
+
+    def update_battery_insight(self, df):
+        """
+        Display Battery Intelligence summary.
+
+        Equivalent cycles are estimated from accumulated charge drop,
+        similar in concept to iPhone battery cycles, but based only on
+        available CSV percentage data.
+        """
+
+        insight = calculate_battery_insight(df)
+
+        voltage_slope = insight.get("voltage_slope_mv_day")
+        charge_slope = insight.get("charge_slope_percent_day")
+        remaining_days = insight.get("remaining_days")
+        replacement_date = insight.get("replacement_date")
+        physical_cycles = insight.get("physical_cycles")
+        equivalent_cycles = insight.get("equivalent_cycles")
+        confidence = insight.get("confidence")
+
+        if remaining_days is None:
+            remaining_text = "N/A"
+        else:
+            remaining_text = f"{remaining_days:.0f} days"
+
+        self.battery_insight_label.setText(
+            "Battery Insight | "
+            f"Voltage drop: {self.format_number(voltage_slope)} mV/day | "
+            f"Charge drop: {self.format_number(charge_slope)} %/day | "
+            f"Remaining life: {remaining_text} | "
+            f"Replacement: {replacement_date or 'N/A'} | "
+            f"Voltage cycles: {physical_cycles} | "
+            f"Equivalent cycles: {equivalent_cycles:.2f} | "
+            f"Confidence: {confidence}"
+        )
+
+        mode_slopes = insight.get("mode_slopes", {})
+
+        seismic = mode_slopes.get("Seismic")
+        bit = mode_slopes.get("BIT")
+        no_acq = mode_slopes.get("No acquisition")
+
+        self.mode_slopes_label.setText(
+            "Consumption by mode | "
+            f"Seismic: {self.format_number(seismic)} mV/day | "
+            f"BIT: {self.format_number(bit)} mV/day | "
+            f"No acquisition: {self.format_number(no_acq)} mV/day"
+        )
+
+        return insight
+
     def render_chart_html(self, html):
-        """
-        Render Plotly HTML from a temporary file.
-
-        This is more reliable than QWebEngineView.setHtml()
-        when the application is packaged as an EXE.
-        """
-
         temp_dir = Path(tempfile.gettempdir()) / "node_health_analyzer"
         temp_dir.mkdir(
             parents=True,
@@ -321,32 +366,38 @@ class NodeDetailWindow(QMainWindow):
         )
 
     def load_metric_chart(self):
-        """
-        Load and render selected metric chart.
-        """
-
         df = self.records_df.copy()
 
         if df.empty:
             self.web_view.setHtml("<h3>No records found</h3>")
             return
 
+        df = self.parse_timestamps(df)
+
         metric = self.get_metric_config()
         metric_column = metric["column"]
-
-        df = self.parse_timestamps(df)
 
         df[metric_column] = pd.to_numeric(
             df[metric_column],
             errors="coerce"
         )
 
+        if "voltage_mv" in df.columns:
+            df["voltage_mv"] = pd.to_numeric(
+                df["voltage_mv"],
+                errors="coerce"
+            )
+
+        if "charge_percent" in df.columns:
+            df["charge_percent"] = pd.to_numeric(
+                df["charge_percent"],
+                errors="coerce"
+            )
+
         df = df.dropna(
             subset=["timestamp", metric_column]
         )
 
-        # Charge sometimes reports 0 or invalid values during no acquisition.
-        # These points distort battery interpretation.
         if metric_column == "charge_percent":
             df = df[
                 (df["charge_percent"] > 0)
@@ -354,8 +405,6 @@ class NodeDetailWindow(QMainWindow):
                 (df["acq_type"] != "No acquisition")
             ]
 
-        # GPS during no acquisition is usually not useful
-        # for operational acquisition analysis.
         if metric_column == "gps_quality":
             df = df[
                 df["acq_type"] != "No acquisition"
@@ -397,6 +446,8 @@ class NodeDetailWindow(QMainWindow):
                 "<h3>No records for selected filter</h3>"
             )
             return
+
+        insight = self.update_battery_insight(df)
 
         fig = go.Figure()
 
@@ -464,6 +515,65 @@ class NodeDetailWindow(QMainWindow):
                 )
             )
 
+        if metric_column == "voltage_mv":
+            latest_cycle_df = insight.get("latest_cycle_df")
+            slope = insight.get("voltage_slope_mv_day")
+            intercept = insight.get("voltage_intercept")
+            start_time = insight.get("voltage_start_time")
+
+            trend_df = build_voltage_trend_line(
+                latest_cycle_df,
+                slope,
+                intercept,
+                start_time
+            )
+
+            if trend_df is not None:
+                fig.add_trace(
+                    go.Scatter(
+                        x=trend_df["timestamp"],
+                        y=trend_df["trend_voltage"],
+                        mode="lines",
+                        name="Voltage trend",
+                        line=dict(
+                            dash="dash",
+                            width=3
+                        )
+                    )
+                )
+
+            fig.add_hline(
+                y=WARNING_VOLTAGE_MV,
+                line_dash="dot",
+                annotation_text="Warning threshold"
+            )
+
+            fig.add_hline(
+                y=CRITICAL_VOLTAGE_MV,
+                line_dash="dash",
+                annotation_text="Critical threshold"
+            )
+
+            replacement_timestamp = insight.get(
+                "replacement_timestamp"
+            )
+
+            if replacement_timestamp is not None:
+                fig.add_trace(
+                    go.Scatter(
+                        x=[replacement_timestamp],
+                        y=[CRITICAL_VOLTAGE_MV],
+                        mode="markers+text",
+                        name="Estimated replacement",
+                        text=["Replacement"],
+                        textposition="top center",
+                        marker=dict(
+                            size=12,
+                            symbol="x"
+                        )
+                    )
+                )
+
         fig.update_layout(
             title=f"{metric['title']} - {self.t('node')} {self.serial_number}",
             xaxis_title="Time",
@@ -477,4 +587,3 @@ class NodeDetailWindow(QMainWindow):
         )
 
         self.render_chart_html(html)
-        
