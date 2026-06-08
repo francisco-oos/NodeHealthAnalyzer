@@ -1,23 +1,24 @@
 from pathlib import Path
 import sqlite3
+import sys
 
 import pandas as pd
 
 
-DATABASE_PATH = Path("data") / "database" / "node_health.db"
+def get_app_base_path():
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parents[2]
+
+
+DATABASE_PATH = get_app_base_path() / "data" / "database" / "node_health.db"
 
 
 DEFAULT_APP_SETTINGS = {
-    # Technical reference values.
-    # Used for Battery Health and Remaining Life.
     "technical_optimal_voltage_mv": 4200,
     "technical_critical_voltage_mv": 3600,
-
-    # Operational thresholds.
-    # Used for alerts, chart lines and tolerance.
     "warning_voltage_mv": 3800,
     "critical_voltage_mv": 3600,
-
     "optimal_temperature_c": 25,
     "warning_temperature_c": 45,
     "critical_temperature_c": 60,
@@ -34,14 +35,8 @@ DEFAULT_APP_SETTINGS = {
 
 def get_connection():
     DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
-
-    conn = sqlite3.connect(
-        DATABASE_PATH,
-        timeout=30
-    )
-
+    conn = sqlite3.connect(DATABASE_PATH, timeout=30)
     conn.execute("PRAGMA busy_timeout = 30000")
-
     return conn
 
 
@@ -77,14 +72,6 @@ def initialize_database():
 
 
 def clear_database():
-    """
-    Clear imported node data only.
-
-    It does NOT delete:
-    - app_settings
-    - license/trial information
-    """
-
     conn = get_connection()
     cursor = conn.cursor()
 
@@ -163,45 +150,19 @@ def get_records_by_serial(serial_number):
         ORDER BY health_records.timestamp
     """
 
-    df = pd.read_sql_query(
-        query,
-        conn,
-        params=(serial_number,)
-    )
-
+    df = pd.read_sql_query(query, conn, params=(serial_number,))
     conn.close()
 
     return df
 
 
 def get_table_columns(cursor, table_name):
-    """
-    Return existing columns for a SQLite table.
-    Used for safe migrations.
-    """
-
     cursor.execute(f"PRAGMA table_info({table_name})")
-
-    return [
-        row[1]
-        for row in cursor.fetchall()
-    ]
+    return [row[1] for row in cursor.fetchall()]
 
 
-def add_column_if_missing(
-    cursor,
-    table_name,
-    column_name,
-    column_definition
-):
-    """
-    Add a column only if it does not already exist.
-    """
-
-    columns = get_table_columns(
-        cursor,
-        table_name
-    )
+def add_column_if_missing(cursor, table_name, column_name, column_definition):
+    columns = get_table_columns(cursor, table_name)
 
     if column_name not in columns:
         cursor.execute(
@@ -211,35 +172,54 @@ def add_column_if_missing(
 
 
 def migrate_settings_table(cursor):
-    """
-    Migrate existing app_settings table.
+    columns = get_table_columns(cursor, "app_settings")
 
-    This keeps old installations working after adding:
-    - technical_optimal_voltage_mv
-    - technical_critical_voltage_mv
-    """
+    required_columns = {
+        "technical_optimal_voltage_mv": "REAL",
+        "technical_critical_voltage_mv": "REAL",
+        "warning_voltage_mv": "REAL",
+        "critical_voltage_mv": "REAL",
+        "optimal_temperature_c": "REAL",
+        "warning_temperature_c": "REAL",
+        "critical_temperature_c": "REAL",
+        "manufacturer_life_years": "REAL",
+        "replacement_alert_days": "INTEGER",
+        "minimum_valid_discharge_mv_day": "REAL",
+        "battery_model": "TEXT",
+        "battery_pack_voltage": "REAL",
+        "battery_pack_ah": "REAL",
+        "battery_pack_wh": "REAL",
+        "battery_cells": "INTEGER",
+    }
 
-    add_column_if_missing(
-        cursor,
-        "app_settings",
-        "technical_optimal_voltage_mv",
-        "REAL"
-    )
+    for column_name, column_definition in required_columns.items():
+        add_column_if_missing(
+            cursor,
+            "app_settings",
+            column_name,
+            column_definition
+        )
 
-    add_column_if_missing(
-        cursor,
-        "app_settings",
-        "technical_critical_voltage_mv",
-        "REAL"
-    )
+    columns = get_table_columns(cursor, "app_settings")
 
-    # Fill new technical columns using old values when available.
-    cursor.execute("""
-        UPDATE app_settings
-        SET technical_optimal_voltage_mv =
-            COALESCE(technical_optimal_voltage_mv, optimal_voltage_mv, 4200)
-        WHERE id = 1
-    """)
+    if "optimal_voltage_mv" in columns:
+        cursor.execute("""
+            UPDATE app_settings
+            SET technical_optimal_voltage_mv =
+                COALESCE(
+                    technical_optimal_voltage_mv,
+                    optimal_voltage_mv,
+                    4200
+                )
+            WHERE id = 1
+        """)
+    else:
+        cursor.execute("""
+            UPDATE app_settings
+            SET technical_optimal_voltage_mv =
+                COALESCE(technical_optimal_voltage_mv, 4200)
+            WHERE id = 1
+        """)
 
     cursor.execute("""
         UPDATE app_settings
@@ -248,7 +228,6 @@ def migrate_settings_table(cursor):
         WHERE id = 1
     """)
 
-    # Recommended V1.1 operational default.
     cursor.execute("""
         UPDATE app_settings
         SET warning_voltage_mv =
@@ -256,15 +235,15 @@ def migrate_settings_table(cursor):
         WHERE id = 1
     """)
 
+    cursor.execute("""
+        UPDATE app_settings
+        SET critical_voltage_mv =
+            COALESCE(critical_voltage_mv, 3600)
+        WHERE id = 1
+    """)
+
 
 def initialize_settings_table():
-    """
-    Create and migrate app settings.
-
-    Important:
-    clear_database() must NOT delete this table.
-    """
-
     conn = get_connection()
     cursor = conn.cursor()
 
@@ -345,10 +324,6 @@ def initialize_settings_table():
 
 
 def get_app_settings():
-    """
-    Return app settings as dictionary.
-    """
-
     initialize_settings_table()
 
     conn = get_connection()
@@ -381,16 +356,10 @@ def get_app_settings():
     if row is None:
         return DEFAULT_APP_SETTINGS.copy()
 
-    keys = list(DEFAULT_APP_SETTINGS.keys())
-
-    return dict(zip(keys, row))
+    return dict(zip(DEFAULT_APP_SETTINGS.keys(), row))
 
 
 def save_app_settings(settings):
-    """
-    Save user-defined settings.
-    """
-
     initialize_settings_table()
 
     conn = get_connection()
@@ -438,10 +407,4 @@ def save_app_settings(settings):
 
 
 def restore_default_app_settings():
-    """
-    Restore default Battery Intelligence settings.
-    """
-
-    save_app_settings(
-        DEFAULT_APP_SETTINGS.copy()
-    )
+    save_app_settings(DEFAULT_APP_SETTINGS.copy())
