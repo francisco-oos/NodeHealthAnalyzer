@@ -29,17 +29,6 @@ from src.translations.language_manager import LanguageManager
 
 
 class NodeComparisonWindow(QMainWindow):
-    """
-    Multi-node comparison window.
-
-    V1.1:
-    - Summary table.
-    - Clear tooltip.
-    - Warning / critical thresholds.
-    - Breaks voltage lines on large jumps.
-    - Priority column for decision making.
-    """
-
     def __init__(self, nodes):
         super().__init__()
 
@@ -53,6 +42,10 @@ class NodeComparisonWindow(QMainWindow):
 
     def t(self, key):
         return LanguageManager.translate(key)
+
+    def tf(self, key, fallback):
+        value = self.t(key)
+        return fallback if value == key else value
 
     def setup_ui(self):
         central_widget = QWidget()
@@ -253,23 +246,23 @@ class NodeComparisonWindow(QMainWindow):
         metric_config = {
             "Voltage": {
                 "column": "voltage_mv",
-                "title": f"{self.t('voltage')} Comparison",
-                "axis": "Voltage (mV)",
+                "title": self.tf("voltage_comparison", "Voltage Comparison"),
+                "axis": f"{self.t('voltage')} (mV)",
             },
             "Charge": {
                 "column": "charge_percent",
-                "title": f"{self.t('charge')} Comparison",
-                "axis": "Charge (%)",
+                "title": self.tf("charge_comparison", "Charge Comparison"),
+                "axis": f"{self.t('charge')} (%)",
             },
             "Temperature": {
                 "column": "temperature_c",
-                "title": f"{self.t('temperature')} Comparison",
-                "axis": "Temperature (°C)",
+                "title": self.tf("temperature_comparison", "Temperature Comparison"),
+                "axis": f"{self.t('temperature')} (°C)",
             },
             "GPS Quality": {
                 "column": "gps_quality",
-                "title": f"{self.t('gps_quality')} Comparison",
-                "axis": "GPS Quality (%)",
+                "title": self.tf("gps_comparison", "GPS Quality Comparison"),
+                "axis": f"{self.t('gps_quality')} (%)",
             },
         }
 
@@ -281,33 +274,22 @@ class NodeComparisonWindow(QMainWindow):
 
         return f"{value:.0f} {self.t('days')}"
 
-    def get_priority(self, remaining_days, recommendation_key):
-        """
-        Operational priority for comparison summary.
-        """
-
+    def get_priority_key(self, remaining_days, recommendation_key):
         if remaining_days is None or pd.isna(remaining_days):
-            return "Review"
-
-        if remaining_days <= 30:
-            return "Immediate"
-
-        if remaining_days <= 90:
-            return "Plan"
+            return "review"
 
         if recommendation_key == "recommendation_prediction_not_reliable":
-            return "Review"
+            return "review"
 
-        return "Monitor"
+        if remaining_days <= 30:
+            return "immediate"
+
+        if remaining_days <= 90:
+            return "plan"
+
+        return "monitor"
 
     def insert_breaks_on_large_jumps(self, df, metric_column, jump_limit=200):
-        """
-        Break chart lines when voltage jumps are too large.
-
-        This prevents recharge / battery replacement jumps from being
-        displayed as normal continuous discharge.
-        """
-
         if metric_column != "voltage_mv":
             return df
 
@@ -331,18 +313,31 @@ class NodeComparisonWindow(QMainWindow):
 
     def build_hover_template(self):
         return (
-            "<b>Nodo:</b> %{customdata[0]}<br>"
-            "<b>Fecha:</b> %{x}<br>"
-            "<b>Valor:</b> %{y}<br>"
-            "<b>Voltaje:</b> %{customdata[1]} mV<br>"
-            "<b>Carga:</b> %{customdata[2]} %<br>"
-            "<b>GPS:</b> %{customdata[3]} %<br>"
-            "<b>Temperatura:</b> %{customdata[4]} °C<br>"
-            "<b>Modo:</b> %{customdata[5]}<br>"
+            f"<b>{self.t('node')}:</b> %{{customdata[0]}}<br>"
+            f"<b>{self.tf('date', 'Date')}:</b> %{{x}}<br>"
+            f"<b>{self.t('voltage')}:</b> %{{customdata[1]}} mV<br>"
+            f"<b>{self.t('charge')}:</b> %{{customdata[2]}} %<br>"
+            f"<b>GPS:</b> %{{customdata[3]}} %<br>"
+            f"<b>{self.t('temperature')}:</b> %{{customdata[4]}} °C<br>"
+            f"<b>{self.tf('mode', 'Mode')}:</b> %{{customdata[5]}}<br>"
+            f"<b>{self.t('battery_health')}:</b> %{{customdata[6]}} %<br>"
+            f"<b>{self.t('slope')}:</b> %{{customdata[7]}} mV/day<br>"
+            f"<b>{self.t('remaining_life')}:</b> %{{customdata[8]}}<br>"
+            f"<b>{self.t('confidence')}:</b> %{{customdata[9]}}<br>"
             "<extra></extra>"
         )
 
-    def get_customdata(self, df, serial_number):
+    def get_customdata(
+        self,
+        df,
+        serial_number,
+        battery_health=None,
+        slope=None,
+        remaining_days=None,
+        confidence=None,
+    ):
+        df = df.copy()
+
         required_columns = [
             "voltage_mv",
             "charge_percent",
@@ -351,13 +346,31 @@ class NodeComparisonWindow(QMainWindow):
             "acq_type",
         ]
 
-        df = df.copy()
-
         for column in required_columns:
             if column not in df.columns:
                 df[column] = ""
 
         df["serial_number"] = serial_number
+
+        df["battery_health"] = (
+            ""
+            if battery_health is None or pd.isna(battery_health)
+            else f"{battery_health:.0f}"
+        )
+
+        df["slope"] = (
+            ""
+            if slope is None or pd.isna(slope)
+            else f"{slope:.2f}"
+        )
+
+        df["remaining"] = (
+            self.t("not_available")
+            if remaining_days is None or pd.isna(remaining_days)
+            else f"{remaining_days:.0f} {self.t('days')}"
+        )
+
+        df["confidence"] = str(confidence)
 
         return df[
             [
@@ -367,6 +380,10 @@ class NodeComparisonWindow(QMainWindow):
                 "gps_quality",
                 "temperature_c",
                 "acq_type",
+                "battery_health",
+                "slope",
+                "remaining",
+                "confidence",
             ]
         ]
 
@@ -384,16 +401,16 @@ class NodeComparisonWindow(QMainWindow):
             self.summary_label.setText("")
             return
 
-        html = """
+        html = f"""
         <table border="1" cellspacing="0" cellpadding="4">
             <tr>
-                <th>Nodo</th>
-                <th>Salud batería</th>
-                <th>Pendiente</th>
-                <th>Vida restante</th>
-                <th>Confianza</th>
-                <th>Prioridad</th>
-                <th>Recomendación</th>
+                <th>{self.t('node')}</th>
+                <th>{self.t('battery_health')}</th>
+                <th>{self.t('slope')}</th>
+                <th>{self.t('remaining_life')}</th>
+                <th>{self.t('confidence')}</th>
+                <th>{self.t('priority')}</th>
+                <th>{self.t('recommendation')}</th>
             </tr>
         """
 
@@ -410,7 +427,7 @@ class NodeComparisonWindow(QMainWindow):
             </tr>
             """
 
-        html += "</table>"
+        html += "</table><br>"
         self.summary_label.setText(html)
 
     def load_comparison_chart(self):
@@ -522,10 +539,11 @@ class NodeComparisonWindow(QMainWindow):
             confidence_text = self.t(str(confidence).lower())
             recommendation_text = self.t(recommendation_key)
 
-            priority = self.get_priority(
+            priority_key = self.get_priority_key(
                 remaining_days,
                 recommendation_key
             )
+            priority_text = self.t(priority_key)
 
             summary_rows.append({
                 "serial": serial_number,
@@ -533,7 +551,8 @@ class NodeComparisonWindow(QMainWindow):
                 "slope": slope_text,
                 "remaining": remaining_text,
                 "confidence": confidence_text,
-                "priority": priority,
+                "priority_key": priority_key,
+                "priority": priority_text,
                 "recommendation": recommendation_text,
             })
 
@@ -554,7 +573,14 @@ class NodeComparisonWindow(QMainWindow):
                     y=plot_df[metric_column],
                     mode="lines+markers",
                     name=trace_name,
-                    customdata=self.get_customdata(plot_df, serial_number),
+                    customdata=self.get_customdata(
+                        plot_df,
+                        serial_number,
+                        battery_health,
+                        slope,
+                        remaining_days,
+                        confidence_text,
+                    ),
                     hovertemplate=hover_template,
                     line=dict(width=2),
                     marker=dict(size=4),
@@ -566,13 +592,33 @@ class NodeComparisonWindow(QMainWindow):
 
         if plotted_nodes == 0:
             self.web_view.setHtml(
-                "<h3>No valid data found for selected nodes, metric and date range.</h3>"
+                f"<h3>{self.tf('no_valid_data', 'No valid data found for selected nodes, metric and date range.')}</h3>"
             )
             self.last_figure_html = ""
             self.summary_label.setText("")
             return
 
         self.build_summary_html(summary_rows)
+
+        critical_count = sum(
+            1 for row in summary_rows if row["priority_key"] == "immediate"
+        )
+        warning_count = sum(
+            1 for row in summary_rows if row["priority_key"] == "plan"
+        )
+        good_count = sum(
+            1 for row in summary_rows
+            if row["priority_key"] in ["monitor", "review"]
+        )
+
+        self.summary_label.setText(
+            self.summary_label.text()
+            +
+            f"<b>{self.t('trend_summary')}</b><br>"
+            f"🔴 {self.t('immediate_action')}: {critical_count}<br>"
+            f"🟠 {self.t('plan_replacement')}: {warning_count}<br>"
+            f"🟢 {self.t('monitor')}: {good_count}"
+        )
 
         if metric_column == "voltage_mv" and first_insight is not None:
             warning_voltage = first_insight.get("warning_voltage")
@@ -592,10 +638,10 @@ class NodeComparisonWindow(QMainWindow):
 
         fig.update_layout(
             title=metric["title"],
-            xaxis_title="Time",
+            xaxis_title=self.t("time"),
             yaxis_title=metric["axis"],
             template="plotly_white",
-            legend_title=self.t("node"),
+            legend_title=self.t("data"),
             hovermode="closest",
         )
 
@@ -609,7 +655,7 @@ class NodeComparisonWindow(QMainWindow):
             QMessageBox.warning(
                 self,
                 self.t("export_chart_html"),
-                "No chart available to export. Generate a comparison first."
+                self.tf("no_chart_available", "No chart available to export. Generate a comparison first.")
             )
             return
 
@@ -630,12 +676,12 @@ class NodeComparisonWindow(QMainWindow):
             QMessageBox.information(
                 self,
                 self.t("export_chart_html"),
-                "Comparison chart exported successfully."
+                self.tf("chart_exported_successfully", "Comparison chart exported successfully.")
             )
 
         except Exception as e:
             QMessageBox.critical(
                 self,
-                "Export Chart HTML Error",
+                self.tf("export_chart_html_error", "Export Chart HTML Error"),
                 str(e)
             )
