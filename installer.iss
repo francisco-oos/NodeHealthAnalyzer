@@ -1,5 +1,5 @@
 #define MyAppName "Node Health Analyzer"
-#define MyAppVersion "1.0.1"
+#define MyAppVersion "1.0.3"
 #define MyAppPublisher "Control de Material"
 #define MyAppExeName "NodeHealthAnalyzer.exe"
 
@@ -11,7 +11,7 @@ AppPublisher={#MyAppPublisher}
 DefaultDirName={autopf}\Node Health Analyzer
 DefaultGroupName=Node Health Analyzer
 OutputDir=installer_output
-OutputBaseFilename=NodeHealthAnalyzer_Setup_v1.0.1
+OutputBaseFilename=NodeHealthAnalyzer_Setup_v1.0.3
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
