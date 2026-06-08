@@ -18,7 +18,7 @@ WizardStyle=modern
 SetupIconFile=
 UninstallDisplayIcon={app}\{#MyAppExeName}
 PrivilegesRequired=admin
-ArchitecturesInstallIn64BitMode=x64
+ArchitecturesInstallIn64BitMode=x64compatible
 
 [Languages]
 Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
