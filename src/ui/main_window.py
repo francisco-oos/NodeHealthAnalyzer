@@ -99,7 +99,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.classification_filter)
 
         self.table = QTableWidget()
-        self.table.setColumnCount(14)
+        self.table.setColumnCount(15)
         self.table.cellDoubleClicked.connect(self.open_node_detail)
         layout.addWidget(self.table)
 
@@ -213,6 +213,7 @@ class MainWindow(QMainWindow):
                 self.t("health_score"),
                 self.t("classification"),
                 self.t("battery_health"),
+                self.t("degradation_level"),
                 self.t("remaining_life"),
                 self.t("prediction_confidence"),
                 self.t("recommendation"),
@@ -394,6 +395,7 @@ class MainWindow(QMainWindow):
                 node.get("health_score", ""),
                 display_classification,
                 battery_health_text,
+                self.t(str(node.get("degradation_level", "")).lower()),
                 remaining_days_text,
                 self.t(str(node.get("prediction_confidence", "")).lower()),
                 self.t(node.get("recommendation", "")),
@@ -407,7 +409,7 @@ class MainWindow(QMainWindow):
             for column, value in enumerate(values):
                 item = QTableWidgetItem(str(value))
 
-                if column in [8, 9, 10]:
+                if column in [8, 9, 10, 11]:
                     item.setForeground(classification_color)
                     item.setFont(QFont("", -1, QFont.Bold))
 
@@ -451,6 +453,9 @@ class MainWindow(QMainWindow):
                 self.t("health_score"): node.get("health_score", ""),
                 self.t("classification"): node.get("classification", ""),
                 self.t("battery_health"): node.get("battery_health", ""),
+                self.t("degradation_level"): self.t(
+                    str(node.get("degradation_level", "")).lower()
+                ),
                 self.t("remaining_life"): node.get("remaining_days", ""),
                 self.t("prediction_confidence"): node.get(
                     "prediction_confidence",
@@ -542,6 +547,7 @@ class MainWindow(QMainWindow):
                     self.t("health_score"),
                     self.t("classification"),
                     self.t("battery_health"),
+                    self.t("degradation_level"),
                     self.t("remaining_life"),
                     self.t("recommendation"),
                 ]
@@ -561,6 +567,9 @@ class MainWindow(QMainWindow):
                         node.get("classification", ""),
                         self.format_battery_health(
                             node.get("battery_health")
+                        ),
+                        self.t(
+                            str(node.get("degradation_level", "")).lower()
                         ),
                         self.format_remaining_days(
                             node.get("remaining_days")
@@ -661,7 +670,7 @@ class MainWindow(QMainWindow):
             self,
             self.t("about"),
             "Node Health Analyzer\n\n"
-            "Version: 1.0.0 Trial\n\n"
+            "Version: 1.0.2 Trial\n\n"
             f"Install Date: {install_date}\n"
             f"Days Used: {days_used}\n"
             f"Days Remaining: {days_remaining}\n\n"

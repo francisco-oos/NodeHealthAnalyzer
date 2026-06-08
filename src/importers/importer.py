@@ -27,7 +27,7 @@ class CSVImporter:
                     "Int. Voltage (mV)",
                     "Int. Charge (%)",
                     "GPS Quality (%)",
-                    "Temperature (°C)",
+                    "Int. Temp. (°C)",
                 ]
 
                 for column in numeric_columns:
@@ -45,7 +45,7 @@ class CSVImporter:
                         "voltage_mv": row.get("Int. Voltage (mV)", None),
                         "charge_percent": row.get("Int. Charge (%)", None),
                         "gps_quality": row.get("GPS Quality (%)", None),
-                        "temperature_c": row.get("Temperature (°C)", None),
+                        "temperature_c": row.get("Int. Temp. (°C)", None),
                         "acq_type": row.get("Acq. Type", ""),
                     })
 
@@ -82,7 +82,10 @@ class CSVImporter:
                     charge = latest_row.get("Int. Charge (%)", "")
                     acq_type = latest_row.get("Acq. Type", "")
                     gps_quality = latest_row.get("GPS Quality (%)", "")
-                    temperature = latest_row.get("Temperature (°C)", "")
+                    temperature = latest_row.get(
+                        "Int. Temp. (°C)",
+                        latest_row.get("Temperature (°C)", "")
+                    )
                     last_time = latest_row.get("Start Local Time", "")
 
                     health_score = calculate_health_score(
@@ -118,6 +121,7 @@ class CSVImporter:
 
                     # Battery Intelligence dashboard values.
                     "battery_health": battery_insight.get("battery_health"),
+                    "degradation_level": battery_insight.get("degradation_level"),
                     "remaining_days": battery_insight.get("remaining_days"),
                     "prediction_confidence": battery_insight.get("confidence"),
                     "recommendation": battery_insight.get("recommendation"),

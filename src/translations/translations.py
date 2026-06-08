@@ -164,6 +164,17 @@ TRANSLATIONS = {
         "charge_comparison": "Charge Comparison",
         "temperature_comparison": "Temperature Comparison",
         "gps_comparison": "GPS Quality Comparison",
+        "degradation_level": "Degradation",
+        "slow": "Slow",
+        "fast": "Fast",
+        "degradation_level": "Degradation",
+        "indeterminate": "Indeterminate",
+        "slow": "Slow",
+        "fast": "Fast",
+
+
+
+
     },
 
     "es": {
@@ -309,6 +320,17 @@ TRANSLATIONS = {
         "charge_comparison": "Comparación de Carga",
         "temperature_comparison": "Comparación de Temperatura",
         "gps_comparison": "Comparación de Calidad GPS",
+        "degradation_level": "Degradación",
+        "improving": "Mejorando",
+        "slow": "Lenta",
+        "fast": "Rápida",
+        "degradation_level": "Degradación",
+        "indeterminate": "Indeterminada",
+        "slow": "Lenta",
+        "fast": "Rápida",
+
+
+
     },
 
     "zh": {
@@ -461,5 +483,12 @@ TRANSLATIONS = {
         "consumption_by_mode": "按模式消耗",
         "no_records_found": "未找到记录",
         "no_records_for_filter": "所选筛选条件没有记录",
+        "degradation_level": "衰减等级",
+        "slow": "缓慢",
+        "fast": "快速",
+        "degradation_level": "衰减等级",
+        "indeterminate": "不确定",
+        "slow": "缓慢",
+        "fast": "快速",
     }
 }

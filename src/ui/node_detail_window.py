@@ -264,16 +264,22 @@ class NodeDetailWindow(QMainWindow):
         if slope is None or pd.isna(slope):
             return "unknown", self.t("not_available")
 
-        if slope < -2:
-            return "rapid_degradation", f"🔴 {self.t('rapid_degradation')}"
+        if slope > 0:
+            return "indeterminate", f"⚪ {self.t('indeterminate')}"
 
-        if slope < -0.5:
-            return "degrading", f"🟠 {self.t('degrading')}"
-
-        if slope <= 0.5:
+        if slope >= -0.5:
             return "stable", f"🔵 {self.t('stable')}"
 
-        return "improving", f"🟢 {self.t('improving')}"
+        if slope >= -2:
+            return "slow", f"🟢 {self.t('slow')}"
+
+        if slope >= -10:
+            return "moderate", f"🟠 {self.t('moderate')}"
+
+        if slope >= -20:
+            return "fast", f"🟠 {self.t('fast')}"
+
+        return "critical", f"🔴 {self.t('critical')}"
 
     def update_battery_insight(self, df):
         insight = calculate_battery_insight(df)

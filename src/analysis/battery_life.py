@@ -121,6 +121,27 @@ def classify_battery_condition(battery_health):
 
     return "Critical"
 
+def classify_degradation_level(voltage_slope):
+    if voltage_slope is None or pd.isna(voltage_slope):
+        return "Unknown"
+
+    if voltage_slope >= 0:
+        return "Indeterminate"
+
+    if voltage_slope >= -0.5:
+        return "Stable"
+
+    if voltage_slope >= -2:
+        return "Slow"
+
+    if voltage_slope >= -10:
+        return "Moderate"
+
+    if voltage_slope >= -20:
+        return "Fast"
+
+    return "Critical"
+
 
 def calculate_slope_per_day(df, column):
     df = df.dropna(
@@ -353,6 +374,7 @@ def calculate_battery_insight(df):
             "current_charge": None,
             "battery_health": None,
             "battery_condition": "Unknown",
+            "degradation_level": "Unknown",
             "voltage_slope_mv_day": None,
             "voltage_intercept": None,
             "voltage_start_time": None,
@@ -377,7 +399,7 @@ def calculate_battery_insight(df):
 
     operational_df = get_operational_voltage_data(prepared_df)
     cleaned_df = remove_voltage_spikes(operational_df)
-
+    
     if cleaned_df.empty:
         cleaned_df = operational_df.copy()
 
@@ -399,6 +421,10 @@ def calculate_battery_insight(df):
 
     voltage_slope, voltage_intercept, voltage_start_time = (
         calculate_slope_per_day(cleaned_df, "voltage_mv")
+    )
+
+    degradation_level = classify_degradation_level(
+        voltage_slope
     )
 
     charge_slope = None
@@ -479,6 +505,7 @@ def calculate_battery_insight(df):
         "technical_critical_voltage": technical_critical_voltage,
         "mode_slopes": mode_slopes,
         "analysis_df": cleaned_df,
+        "degradation_level": degradation_level,
     }
 
 
