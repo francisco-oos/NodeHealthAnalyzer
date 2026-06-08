@@ -1,9 +1,22 @@
 from datetime import datetime
 from pathlib import Path
 import sqlite3
+import os
+import sys
 
 
-DATABASE_PATH = Path("data") / "database" / "node_health.db"
+def get_app_base_path():
+    if getattr(sys, "frozen", False):
+        local_app_data = os.environ.get("LOCALAPPDATA")
+        if local_app_data:
+            return Path(local_app_data) / "NodeHealthAnalyzer"
+
+        return Path.home() / "AppData" / "Local" / "NodeHealthAnalyzer"
+
+    return Path(__file__).resolve().parents[2]
+
+
+DATABASE_PATH = get_app_base_path() / "data" / "database" / "node_health.db"
 
 TRIAL_DAYS = 30
 

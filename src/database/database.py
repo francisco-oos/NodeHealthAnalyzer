@@ -5,9 +5,19 @@ import sys
 import pandas as pd
 
 
+import os
+import sys
+from pathlib import Path
+
+
 def get_app_base_path():
     if getattr(sys, "frozen", False):
-        return Path(sys.executable).resolve().parent
+        local_app_data = os.environ.get("LOCALAPPDATA")
+        if local_app_data:
+            return Path(local_app_data) / "NodeHealthAnalyzer"
+
+        return Path.home() / "AppData" / "Local" / "NodeHealthAnalyzer"
+
     return Path(__file__).resolve().parents[2]
 
 
