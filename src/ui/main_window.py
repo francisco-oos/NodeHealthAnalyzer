@@ -1,8 +1,10 @@
 import pandas as pd
 from datetime import datetime
 
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QColor, QFont
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QFileDialog,
     QLabel,
     QLineEdit,
@@ -13,6 +15,7 @@ from PySide6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
+    QHBoxLayout,
     QWidget,
 )
 
@@ -27,14 +30,20 @@ from reportlab.platypus import (
     TableStyle,
 )
 
-from src.database.database import clear_database
 from src.importers.importer import CSVImporter
+from src.analysis.health_score import calculate_health_score, classify_node
+from src.database.database import (
+    initialize_database,
+    get_dashboard_nodes_from_database,
+    get_record_date_range,
+    get_import_sessions,
+)
 from src.ui.node_detail_window import NodeDetailWindow
 from src.ui.node_comparison_window import NodeComparisonWindow
 from src.ui.settings_window import SettingsWindow
 from src.translations.language_manager import LanguageManager
 from src.licensing.trial_manager import TrialManager
-
+from src.ui.field_operation_settings_window import FieldOperationSettingsWindow
 
 class MainWindow(QMainWindow):
 
@@ -53,8 +62,11 @@ class MainWindow(QMainWindow):
         self.detail_windows = []
         self.comparison_windows = []
         self.settings_windows = []
+        self.field_operation_settings_windows = []
         self.current_folder = ""
         self.setup_ui()
+        self.field_operation_settings_windows = []
+        self.load_nodes_from_database()
 
     def t(self, key):
         return LanguageManager.translate(key)
@@ -94,12 +106,32 @@ class MainWindow(QMainWindow):
         self.search_box.textChanged.connect(self.update_table)
         layout.addWidget(self.search_box)
 
+        filters_layout = QHBoxLayout()
+
         self.classification_filter = QComboBox()
         self.classification_filter.currentIndexChanged.connect(self.update_table)
-        layout.addWidget(self.classification_filter)
+        filters_layout.addWidget(self.classification_filter)
+
+        self.degradation_filter = QComboBox()
+        self.degradation_filter.currentIndexChanged.connect(self.update_table)
+        filters_layout.addWidget(self.degradation_filter)
+
+        self.acq_type_filter = QComboBox()
+        self.acq_type_filter.currentIndexChanged.connect(self.update_table)
+        filters_layout.addWidget(self.acq_type_filter)
+
+        layout.addLayout(filters_layout)
+
+        self.db_status_label = QLabel()
+        layout.addWidget(self.db_status_label)
 
         self.table = QTableWidget()
-        self.table.setColumnCount(15)
+        self.table.setColumnCount(19)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.table.setDragEnabled(True)
+        self.table.setDragDropMode(QAbstractItemView.DragOnly)
+        self.table.setDefaultDropAction(Qt.CopyAction)
         self.table.cellDoubleClicked.connect(self.open_node_detail)
         layout.addWidget(self.table)
 
@@ -140,6 +172,15 @@ class MainWindow(QMainWindow):
         self.settings_action.triggered.connect(self.open_settings)
         self.tools_menu.addAction(self.settings_action)
 
+        self.field_operation_settings_action = QAction(
+            "Field Operation Settings",
+            self
+        )
+        self.field_operation_settings_action.triggered.connect(
+            self.open_field_operation_settings
+        )
+        self.tools_menu.addAction(self.field_operation_settings_action)
+
         self.about_action = QAction("About", self)
         self.about_action.triggered.connect(self.show_about)
         self.help_menu.addAction(self.about_action)
@@ -154,6 +195,9 @@ class MainWindow(QMainWindow):
         self.export_pdf_action.setText(self.t("export_pdf"))
         self.compare_action.setText(self.t("compare_nodes"))
         self.settings_action.setText(self.t("battery_settings"))
+        self.field_operation_settings_action.setText(
+            self.t("field_operation_settings")
+        )
         self.about_action.setText(self.t("about"))
 
         self.exit_action.setText("Salir" if self.language == "es" else "Exit")
@@ -174,6 +218,8 @@ class MainWindow(QMainWindow):
 
         self.update_menu_language()
         self.update_classification_filter_items()
+        self.update_degradation_filter_items()
+        self.update_acq_type_filter_items()
         self.update_table_headers()
         self.update_labels()
 
@@ -199,6 +245,48 @@ class MainWindow(QMainWindow):
 
         self.classification_filter.blockSignals(False)
 
+    def update_degradation_filter_items(self):
+        current_value = self.degradation_filter.currentData() if hasattr(self, "degradation_filter") else None
+
+        if current_value is None:
+            current_value = "All"
+
+        self.degradation_filter.blockSignals(True)
+        self.degradation_filter.clear()
+
+        self.degradation_filter.addItem(self.t("all_degradation"), "All")
+        for key in ["stable", "slow", "moderate", "fast", "critical", "indeterminate", "unknown"]:
+            self.degradation_filter.addItem(self.t(key), key.capitalize())
+
+        for index in range(self.degradation_filter.count()):
+            if self.degradation_filter.itemData(index) == current_value:
+                self.degradation_filter.setCurrentIndex(index)
+                break
+
+        self.degradation_filter.blockSignals(False)
+
+    def update_acq_type_filter_items(self):
+        current_value = self.acq_type_filter.currentData() if hasattr(self, "acq_type_filter") else None
+
+        if current_value is None:
+            current_value = "All"
+
+        self.acq_type_filter.blockSignals(True)
+        self.acq_type_filter.clear()
+
+        self.acq_type_filter.addItem(self.t("all_acq_types"), "All")
+        self.acq_type_filter.addItem(self.t("seismic"), "Seismic")
+        self.acq_type_filter.addItem(self.t("bit"), "BIT")
+        self.acq_type_filter.addItem(self.t("no_acquisition"), "No acquisition")
+
+        for index in range(self.acq_type_filter.count()):
+            if self.acq_type_filter.itemData(index) == current_value:
+                self.acq_type_filter.setCurrentIndex(index)
+                break
+
+        self.acq_type_filter.blockSignals(False)
+
+
     def update_table_headers(self):
         self.table.setHorizontalHeaderLabels(
             [
@@ -217,6 +305,10 @@ class MainWindow(QMainWindow):
                 self.t("remaining_life"),
                 self.t("prediction_confidence"),
                 self.t("recommendation"),
+                self.t("records_saved"),
+                self.t("duplicates_ignored"),
+                self.t("fcc_health"),
+                self.t("settings_key"),
             ]
         )
 
@@ -227,6 +319,75 @@ class MainWindow(QMainWindow):
 
         self.update_health_summary()
         self.update_kpis()
+
+
+    def load_nodes_from_database(self):
+        """
+        Loads the main dashboard from the historical SQLite database.
+        This runs when the app opens and after every import.
+        """
+        initialize_database()
+
+        df = get_dashboard_nodes_from_database()
+
+        self.nodes = []
+
+        if df.empty:
+            self.update_table()
+            if hasattr(self, "db_status_label"):
+                self.db_status_label.setText(self.t("database_empty"))
+            return
+
+        for _, row in df.iterrows():
+            voltage = row.get("voltage")
+            charge = row.get("charge")
+            gps_quality = row.get("gps_quality")
+
+            health_score = calculate_health_score(
+                voltage,
+                charge,
+                gps_quality,
+            )
+
+            classification = classify_node(health_score)
+
+            self.nodes.append({
+                "serial_number": str(row.get("serial_number", "")),
+                "records": int(row.get("records") or 0),
+                "records_saved": "",
+                "duplicates_ignored": "",
+                "voltage": "" if pd.isna(voltage) else voltage,
+                "charge": "" if pd.isna(charge) else charge,
+                "acq_type": "" if pd.isna(row.get("acq_type")) else row.get("acq_type"),
+                "gps_quality": "" if pd.isna(gps_quality) else gps_quality,
+                "temperature": "" if pd.isna(row.get("temperature")) else row.get("temperature"),
+                "last_time": "" if pd.isna(row.get("last_time")) else row.get("last_time"),
+                "first_time": "" if pd.isna(row.get("first_time")) else row.get("first_time"),
+                "file_path": "",
+                "health_score": health_score,
+                "classification": classification,
+                "battery_health": row.get("battery_health"),
+                "degradation_level": row.get("degradation_level"),
+                "remaining_days": None,
+                "prediction_confidence": row.get("prediction_confidence"),
+                "recommendation": row.get("recommendation"),
+                "latest_fcc_mah": row.get("latest_fcc_mah"),
+                "design_capacity_mah": row.get("design_capacity_mah"),
+                "fcc_health_percent": row.get("fcc_health_percent"),
+                "settings_key": row.get("settings_key"),
+            })
+
+        self.update_table()
+
+        min_time, max_time, record_count = get_record_date_range()
+
+        if hasattr(self, "db_status_label"):
+            self.db_status_label.setText(
+                f"{self.t('database_loaded')}: {len(self.nodes)} {self.t('nodes_loaded').lower()} | "
+                f"{self.t('records')}: {record_count} | "
+                f"{self.t('available_data')}: {min_time or self.t('not_available')} {self.t('to')} {max_time or self.t('not_available')}"
+            )
+
 
     def import_folder(self):
         folder = QFileDialog.getExistingDirectory(
@@ -246,11 +407,22 @@ class MainWindow(QMainWindow):
         self.classification_filter.setCurrentIndex(0)
         self.classification_filter.blockSignals(False)
         self.current_folder = folder
-        clear_database()
+        # Historical mode: do not clear the database when importing.
+        # This preserves previous field data by serial number.
+        imported_nodes = self.importer.load_folder(folder)
 
-        self.nodes = self.importer.load_folder(folder)
+        self.load_nodes_from_database()
 
-        self.update_table()
+        new_records = sum(int(node.get("records_saved") or 0) for node in imported_nodes)
+        duplicates = sum(int(node.get("duplicates_ignored") or 0) for node in imported_nodes)
+
+        QMessageBox.information(
+            self,
+            self.t("import_folder"),
+            f"{self.t('import_finished')}\n"
+            f"{self.t('new_records')}: {new_records}\n"
+            f"{self.t('duplicates_ignored')}: {duplicates}"
+        )
 
     def get_filtered_nodes(self):
         filtered_nodes = self.nodes
@@ -271,6 +443,24 @@ class MainWindow(QMainWindow):
                 node
                 for node in filtered_nodes
                 if node.get("classification") == selected_classification
+            ]
+
+        selected_degradation = self.degradation_filter.currentData() if hasattr(self, "degradation_filter") else "All"
+
+        if selected_degradation and selected_degradation != "All":
+            filtered_nodes = [
+                node
+                for node in filtered_nodes
+                if str(node.get("degradation_level", "")).lower() == str(selected_degradation).lower()
+            ]
+
+        selected_acq_type = self.acq_type_filter.currentData() if hasattr(self, "acq_type_filter") else "All"
+
+        if selected_acq_type and selected_acq_type != "All":
+            filtered_nodes = [
+                node
+                for node in filtered_nodes
+                if str(node.get("acq_type", "")) == selected_acq_type
             ]
 
         return filtered_nodes
@@ -399,6 +589,10 @@ class MainWindow(QMainWindow):
                 remaining_days_text,
                 self.t(str(node.get("prediction_confidence", "")).lower()),
                 self.t(node.get("recommendation", "")),
+                node.get("records_saved", ""),
+                node.get("duplicates_ignored", ""),
+                self.format_battery_health(node.get("fcc_health_percent")),
+                node.get("settings_key", ""),
             ]
 
             classification_color = classification_colors.get(
@@ -696,14 +890,19 @@ class MainWindow(QMainWindow):
         self.table.clearContents()
         self.table.setRowCount(0)
 
-        clear_database()
-
-        self.nodes = self.importer.load_folder(self.current_folder)
-
-        self.update_table()
+        # Historical mode: keep the database and reload dashboard.
+        self.load_nodes_from_database()
 
         QMessageBox.information(
             self,
             self.t("battery_settings"),
             "Analysis recalculated with the new battery settings."
         )
+    def open_field_operation_settings(self):
+        settings_window = FieldOperationSettingsWindow()
+        settings_window.show()
+
+        if not hasattr(self, "field_operation_settings_windows"):
+            self.field_operation_settings_windows = []
+
+        self.field_operation_settings_windows.append(settings_window)

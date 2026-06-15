@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 import tempfile
 import uuid
@@ -5,13 +6,15 @@ import uuid
 import pandas as pd
 import plotly.graph_objects as go
 
-from PySide6.QtCore import QDate, QUrl
+from PySide6.QtCore import Qt, QDate, QUrl
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
     QDateEdit,
     QFileDialog,
+    QCheckBox,
+    QLineEdit,
     QHBoxLayout,
     QLabel,
     QListWidget,
@@ -24,8 +27,9 @@ from PySide6.QtWidgets import (
 )
 
 from src.analysis.battery_life import calculate_battery_insight
-from src.database.database import get_records_by_serial
+from src.database.database import get_records_by_serial, get_record_date_range
 from src.translations.language_manager import LanguageManager
+from src.ui.node_detail_window import NodeDetailWindow
 
 
 class NodeComparisonWindow(QMainWindow):
@@ -34,7 +38,9 @@ class NodeComparisonWindow(QMainWindow):
 
         self.nodes = nodes
         self.last_figure_html = ""
+        self.detail_windows = []
 
+        self.setAcceptDrops(True)
         self.setWindowTitle(self.t("node_comparison"))
         self.resize(1200, 800)
 
@@ -57,19 +63,33 @@ class NodeComparisonWindow(QMainWindow):
         layout.addWidget(self.title_label)
 
         self.info_label = QLabel()
+        self.info_label.setWordWrap(True)
         layout.addWidget(self.info_label)
 
+        self.node_selector_panel = QWidget()
+        node_selector_layout = QVBoxLayout()
+        node_selector_layout.setContentsMargins(0, 0, 0, 0)
+
         self.select_nodes_label = QLabel()
-        layout.addWidget(self.select_nodes_label)
+        node_selector_layout.addWidget(self.select_nodes_label)
+
+        self.search_box = QLineEdit()
+        self.search_box.textChanged.connect(self.filter_node_list)
+        node_selector_layout.addWidget(self.search_box)
 
         self.node_list = QListWidget()
-        self.node_list.setSelectionMode(QAbstractItemView.MultiSelection)
+        self.node_list.setSelectionMode(QAbstractItemView.NoSelection)
 
         for node in self.nodes:
             serial_number = node.get("serial_number", "")
-            self.node_list.addItem(QListWidgetItem(serial_number))
+            item = QListWidgetItem(serial_number)
+            item.setFlags(item.flags() | Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
+            item.setCheckState(Qt.Unchecked)
+            self.node_list.addItem(item)
 
-        layout.addWidget(self.node_list)
+        self.node_list.itemChanged.connect(self.on_node_check_changed)
+        self.node_list.itemDoubleClicked.connect(self.open_detail_from_item)
+        node_selector_layout.addWidget(self.node_list)
 
         selection_layout = QHBoxLayout()
 
@@ -81,7 +101,14 @@ class NodeComparisonWindow(QMainWindow):
         self.clear_selection_button.clicked.connect(self.clear_selection)
         selection_layout.addWidget(self.clear_selection_button)
 
-        layout.addLayout(selection_layout)
+        node_selector_layout.addLayout(selection_layout)
+
+        self.node_selector_panel.setLayout(node_selector_layout)
+        layout.addWidget(self.node_selector_panel)
+
+        self.filters_panel = QWidget()
+        filters_layout = QVBoxLayout()
+        filters_layout.setContentsMargins(0, 0, 0, 0)
 
         date_layout = QHBoxLayout()
 
@@ -98,40 +125,83 @@ class NodeComparisonWindow(QMainWindow):
 
         self.configure_date_range()
 
+        self.start_date.dateChanged.connect(self.on_filter_changed)
+        self.end_date.dateChanged.connect(self.on_filter_changed)
+
         date_layout.addWidget(self.start_date_label)
         date_layout.addWidget(self.start_date)
         date_layout.addWidget(self.end_date_label)
         date_layout.addWidget(self.end_date)
 
-        layout.addLayout(date_layout)
+        filters_layout.addLayout(date_layout)
 
         self.metric_label = QLabel()
-        layout.addWidget(self.metric_label)
+        filters_layout.addWidget(self.metric_label)
 
         self.metric_filter = QComboBox()
         self.metric_filter.addItem(self.t("voltage"), "Voltage")
         self.metric_filter.addItem(self.t("charge"), "Charge")
         self.metric_filter.addItem(self.t("temperature"), "Temperature")
         self.metric_filter.addItem(self.t("gps_quality"), "GPS Quality")
-        layout.addWidget(self.metric_filter)
+        self.metric_filter.currentIndexChanged.connect(self.on_filter_changed)
+        filters_layout.addWidget(self.metric_filter)
+
+        self.auto_update_checkbox = QCheckBox()
+        self.auto_update_checkbox.setChecked(False)
+        filters_layout.addWidget(self.auto_update_checkbox)
 
         self.compare_button = QPushButton()
         self.compare_button.clicked.connect(self.load_comparison_chart)
-        layout.addWidget(self.compare_button)
+        self.compare_button.setVisible(False)
+        filters_layout.addWidget(self.compare_button)
 
         self.export_html_button = QPushButton()
         self.export_html_button.clicked.connect(self.export_chart_html)
-        layout.addWidget(self.export_html_button)
+        filters_layout.addWidget(self.export_html_button)
+
+        self.filters_panel.setLayout(filters_layout)
+        layout.addWidget(self.filters_panel)
+
+        self.summary_panel = QWidget()
+        summary_layout = QVBoxLayout()
+        summary_layout.setContentsMargins(0, 0, 0, 0)
 
         self.summary_label = QLabel()
         self.summary_label.setWordWrap(True)
-        layout.addWidget(self.summary_label)
+        summary_layout.addWidget(self.summary_label)
+
+        self.summary_panel.setLayout(summary_layout)
+        layout.addWidget(self.summary_panel)
+
+        controls_layout = QHBoxLayout()
+
+        self.show_node_selector_checkbox = QCheckBox()
+        self.show_node_selector_checkbox.setChecked(True)
+        self.show_node_selector_checkbox.stateChanged.connect(self.update_panel_visibility)
+        controls_layout.addWidget(self.show_node_selector_checkbox)
+
+        self.show_filters_checkbox = QCheckBox()
+        self.show_filters_checkbox.setChecked(True)
+        self.show_filters_checkbox.stateChanged.connect(self.update_panel_visibility)
+        controls_layout.addWidget(self.show_filters_checkbox)
+
+        self.show_summary_checkbox = QCheckBox()
+        self.show_summary_checkbox.setChecked(True)
+        self.show_summary_checkbox.stateChanged.connect(self.update_panel_visibility)
+        controls_layout.addWidget(self.show_summary_checkbox)
+
+        self.maximize_chart_button = QPushButton()
+        self.maximize_chart_button.clicked.connect(self.toggle_chart_maximized)
+        controls_layout.addWidget(self.maximize_chart_button)
+
+        layout.addLayout(controls_layout)
 
         self.web_view = QWebEngineView()
-        layout.addWidget(self.web_view)
+        layout.addWidget(self.web_view, 1)
 
         central_widget.setLayout(layout)
 
+        self.chart_maximized = False
         self.apply_language()
 
     def apply_language(self):
@@ -144,22 +214,171 @@ class NodeComparisonWindow(QMainWindow):
         )
 
         self.select_nodes_label.setText(self.t("select_nodes"))
+        self.search_box.setPlaceholderText(self.t("search_node"))
         self.select_all_button.setText(self.t("select_all"))
         self.clear_selection_button.setText(self.t("clear_selection"))
         self.start_date_label.setText(self.t("start_date"))
         self.end_date_label.setText(self.t("end_date"))
         self.metric_label.setText(self.t("metric"))
+        self.auto_update_checkbox.setText(self.t("sync_date_range"))
         self.compare_button.setText(self.t("compare_selected"))
         self.export_html_button.setText(self.t("export_chart_html"))
+        self.show_node_selector_checkbox.setText(self.t("show_node_selector"))
+        self.show_filters_checkbox.setText(self.t("show_filters"))
+        self.show_summary_checkbox.setText(self.t("show_summary"))
+        self.maximize_chart_button.setText(
+            self.t("restore_view") if getattr(self, "chart_maximized", False)
+            else self.t("maximize_chart")
+        )
 
         self.web_view.setHtml(f"<h3>{self.t('select_nodes')}</h3>")
 
+    def update_panel_visibility(self):
+        if getattr(self, "chart_maximized", False):
+            self.node_selector_panel.setVisible(False)
+            self.filters_panel.setVisible(False)
+            self.summary_panel.setVisible(False)
+            return
+
+        self.node_selector_panel.setVisible(self.show_node_selector_checkbox.isChecked())
+        self.filters_panel.setVisible(self.show_filters_checkbox.isChecked())
+        self.summary_panel.setVisible(self.show_summary_checkbox.isChecked())
+
+    def toggle_chart_maximized(self):
+        self.chart_maximized = not getattr(self, "chart_maximized", False)
+
+        if self.chart_maximized:
+            self.node_selector_panel.setVisible(False)
+            self.filters_panel.setVisible(False)
+            self.summary_panel.setVisible(False)
+            self.show_node_selector_checkbox.setEnabled(False)
+            self.show_filters_checkbox.setEnabled(False)
+            self.show_summary_checkbox.setEnabled(False)
+            self.maximize_chart_button.setText(self.t("restore_view"))
+        else:
+            self.show_node_selector_checkbox.setEnabled(True)
+            self.show_filters_checkbox.setEnabled(True)
+            self.show_summary_checkbox.setEnabled(True)
+            self.maximize_chart_button.setText(self.t("maximize_chart"))
+            self.update_panel_visibility()
+
+    def filter_node_list(self):
+        text = self.search_box.text().strip().lower()
+
+        for index in range(self.node_list.count()):
+            item = self.node_list.item(index)
+            item.setHidden(text not in item.text().lower())
+
+    def get_checked_serials(self):
+        serials = []
+
+        for index in range(self.node_list.count()):
+            item = self.node_list.item(index)
+            if item.checkState() == Qt.Checked:
+                serials.append(item.text())
+
+        return serials
+
+    def on_node_check_changed(self, item):
+        self.load_comparison_chart()
+
+    def on_filter_changed(self, *args):
+        if self.auto_update_checkbox.isChecked():
+            self.sync_detail_windows_date_range()
+
+        if self.get_checked_serials():
+            self.load_comparison_chart()
+
+    def sync_detail_windows_date_range(self):
+        for window in list(NodeDetailWindow.open_windows):
+            try:
+                window.set_date_range_from_external(
+                    self.start_date.date(),
+                    self.end_date.date()
+                )
+            except Exception:
+                pass
+
+    def open_detail_from_item(self, item):
+        serial_number = item.text()
+        node_data = None
+
+        for node in self.nodes:
+            if node.get("serial_number", "") == serial_number:
+                node_data = node
+                break
+
+        if node_data is None:
+            node_data = {"serial_number": serial_number}
+
+        detail_window = NodeDetailWindow(node_data)
+        detail_window.show()
+        self.detail_windows.append(detail_window)
+
+    def dragEnterEvent(self, event):
+        event.acceptProposedAction()
+
+    def dropEvent(self, event):
+        serials = self.extract_serials_from_drop(event.mimeData())
+
+        if not serials:
+            event.ignore()
+            return
+
+        for serial in serials:
+            self.select_serial(serial)
+
+        self.load_comparison_chart()
+        event.acceptProposedAction()
+
+    def extract_serials_from_drop(self, mime_data):
+        candidates = []
+
+        if mime_data.hasText():
+            candidates.extend(re.findall(r"\d{5,}", mime_data.text()))
+
+        for fmt in mime_data.formats():
+            try:
+                raw = bytes(mime_data.data(fmt))
+            except Exception:
+                continue
+
+            for encoding in ("utf-8", "utf-16", "latin1"):
+                try:
+                    text = raw.decode(encoding, errors="ignore")
+                except Exception:
+                    continue
+
+                candidates.extend(re.findall(r"\d{5,}", text))
+
+        known = {node.get("serial_number", "") for node in self.nodes}
+        result = []
+
+        for candidate in candidates:
+            if candidate in known and candidate not in result:
+                result.append(candidate)
+
+        return result
+
+    def select_serial(self, serial_number):
+        for index in range(self.node_list.count()):
+            item = self.node_list.item(index)
+            if item.text() == serial_number:
+                item.setCheckState(Qt.Checked)
+                self.node_list.scrollToItem(item)
+                return True
+
+        return False
+
     def select_all_nodes(self):
         for index in range(self.node_list.count()):
-            self.node_list.item(index).setSelected(True)
+            item = self.node_list.item(index)
+            if not item.isHidden():
+                item.setCheckState(Qt.Checked)
 
     def clear_selection(self):
-        self.node_list.clearSelection()
+        for index in range(self.node_list.count()):
+            self.node_list.item(index).setCheckState(Qt.Unchecked)
 
     def parse_timestamps(self, df):
         df = df.copy()
@@ -203,19 +422,16 @@ class NodeComparisonWindow(QMainWindow):
 
         for node in self.nodes:
             serial_number = node.get("serial_number", "")
-            df = get_records_by_serial(serial_number)
+            node_min, node_max, _ = get_record_date_range(serial_number)
 
-            if df.empty:
+            if not node_min or not node_max:
                 continue
 
-            df = self.parse_timestamps(df)
-            df = df.dropna(subset=["timestamp"])
+            node_min = pd.to_datetime(node_min, errors="coerce")
+            node_max = pd.to_datetime(node_max, errors="coerce")
 
-            if df.empty:
+            if pd.isna(node_min) or pd.isna(node_max):
                 continue
-
-            node_min = df["timestamp"].min()
-            node_max = df["timestamp"].max()
 
             if min_date is None or node_min < min_date:
                 min_date = node_min
@@ -431,9 +647,9 @@ class NodeComparisonWindow(QMainWindow):
         self.summary_label.setText(html)
 
     def load_comparison_chart(self):
-        selected_items = self.node_list.selectedItems()
+        selected_serials = self.get_checked_serials()
 
-        if not selected_items:
+        if not selected_serials:
             self.web_view.setHtml(f"<h3>{self.t('select_nodes')}</h3>")
             return
 
@@ -456,8 +672,6 @@ class NodeComparisonWindow(QMainWindow):
         plotted_nodes = 0
         summary_rows = []
 
-        selected_serials = [item.text() for item in selected_items]
-
         self.info_label.setText(
             f"{self.t('compare_selected')}: "
             + ", ".join(selected_serials)
@@ -467,7 +681,11 @@ class NodeComparisonWindow(QMainWindow):
         first_insight = None
 
         for serial_number in selected_serials:
-            df = get_records_by_serial(serial_number)
+            df = get_records_by_serial(
+                serial_number,
+                start_time=start_dt.strftime("%Y-%m-%d %H:%M:%S"),
+                end_time=end_dt.strftime("%Y-%m-%d %H:%M:%S"),
+            )
 
             if df.empty:
                 continue

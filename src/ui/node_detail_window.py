@@ -23,17 +23,21 @@ from src.analysis.battery_life import (
     build_voltage_trend_line,
     calculate_battery_insight,
 )
-from src.database.database import get_records_by_serial
+from src.database.database import get_records_by_serial, get_record_date_range
 from src.translations.language_manager import LanguageManager
 
 
 class NodeDetailWindow(QMainWindow):
+    open_windows = []
+
     def __init__(self, node_data):
         super().__init__()
 
         self.node_data = node_data
         self.serial_number = node_data.get("serial_number", "")
-        self.records_df = get_records_by_serial(self.serial_number)
+        self.records_df = pd.DataFrame()
+        self._syncing_dates = False
+        NodeDetailWindow.open_windows.append(self)
 
         self.setWindowTitle(f"{self.t('node')} {self.tf('details', 'Details')} - {self.serial_number}")
         self.resize(1100, 790)
@@ -47,32 +51,60 @@ class NodeDetailWindow(QMainWindow):
         value = self.t(key)
         return fallback if value == key else value
 
+    def closeEvent(self, event):
+        try:
+            if self in NodeDetailWindow.open_windows:
+                NodeDetailWindow.open_windows.remove(self)
+        except Exception:
+            pass
+        super().closeEvent(event)
+
     def setup_ui(self):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
 
         layout = QVBoxLayout()
 
+        self.info_panel = QWidget()
+        info_layout = QVBoxLayout()
+        info_layout.setContentsMargins(0, 0, 0, 0)
+
         self.title_label = QLabel()
-        layout.addWidget(self.title_label)
+        info_layout.addWidget(self.title_label)
 
         self.summary_label = QLabel()
-        layout.addWidget(self.summary_label)
+        self.summary_label.setWordWrap(True)
+        info_layout.addWidget(self.summary_label)
+
+        self.available_range_label = QLabel()
+        self.available_range_label.setWordWrap(True)
+        info_layout.addWidget(self.available_range_label)
+
+        self.info_panel.setLayout(info_layout)
+        layout.addWidget(self.info_panel)
+
+        self.metrics_panel = QWidget()
+        metrics_layout = QVBoxLayout()
+        metrics_layout.setContentsMargins(0, 0, 0, 0)
 
         self.battery_insight_label = QLabel()
         self.battery_insight_label.setWordWrap(True)
-        layout.addWidget(self.battery_insight_label)
+        metrics_layout.addWidget(self.battery_insight_label)
 
         self.trend_summary_label = QLabel()
         self.trend_summary_label.setWordWrap(True)
-        layout.addWidget(self.trend_summary_label)
+        metrics_layout.addWidget(self.trend_summary_label)
 
         self.mode_slopes_label = QLabel()
         self.mode_slopes_label.setWordWrap(True)
-        layout.addWidget(self.mode_slopes_label)
+        metrics_layout.addWidget(self.mode_slopes_label)
 
-        self.available_range_label = QLabel()
-        layout.addWidget(self.available_range_label)
+        self.metrics_panel.setLayout(metrics_layout)
+        layout.addWidget(self.metrics_panel)
+
+        self.filters_panel = QWidget()
+        filters_layout = QVBoxLayout()
+        filters_layout.setContentsMargins(0, 0, 0, 0)
 
         date_layout = QHBoxLayout()
 
@@ -89,42 +121,106 @@ class NodeDetailWindow(QMainWindow):
 
         self.configure_date_range()
 
+        self.start_date.dateChanged.connect(self.on_filter_changed)
+        self.end_date.dateChanged.connect(self.on_filter_changed)
+
         date_layout.addWidget(self.start_date_label)
         date_layout.addWidget(self.start_date)
         date_layout.addWidget(self.end_date_label)
         date_layout.addWidget(self.end_date)
 
-        layout.addLayout(date_layout)
+        filters_layout.addLayout(date_layout)
 
         self.metric_filter = QComboBox()
         self.metric_filter.addItem(self.t("voltage"), "Voltage")
         self.metric_filter.addItem(self.t("charge"), "Charge")
         self.metric_filter.addItem(self.t("temperature"), "Temperature")
         self.metric_filter.addItem(self.t("gps_quality"), "GPS Quality")
-        layout.addWidget(self.metric_filter)
+        self.metric_filter.currentIndexChanged.connect(self.on_filter_changed)
+        filters_layout.addWidget(self.metric_filter)
 
         self.acq_filter = QComboBox()
         self.acq_filter.addItem(self.t("all"), "All")
         self.acq_filter.addItem(self.t("seismic"), "Seismic")
         self.acq_filter.addItem(self.t("bit"), "BIT")
         self.acq_filter.addItem(self.t("no_acquisition"), "No acquisition")
-        layout.addWidget(self.acq_filter)
+        self.acq_filter.currentIndexChanged.connect(self.on_filter_changed)
+        filters_layout.addWidget(self.acq_filter)
 
         self.advanced_trend_checkbox = QCheckBox()
         self.advanced_trend_checkbox.stateChanged.connect(self.load_metric_chart)
-        layout.addWidget(self.advanced_trend_checkbox)
+        filters_layout.addWidget(self.advanced_trend_checkbox)
 
+        # Kept for compatibility, but hidden because filters update automatically.
         self.apply_filter_button = QPushButton()
         self.apply_filter_button.clicked.connect(self.load_metric_chart)
-        layout.addWidget(self.apply_filter_button)
+        self.apply_filter_button.setVisible(False)
+        filters_layout.addWidget(self.apply_filter_button)
+
+        self.filters_panel.setLayout(filters_layout)
+        layout.addWidget(self.filters_panel)
+
+        controls_layout = QHBoxLayout()
+
+        self.show_summary_checkbox = QCheckBox()
+        self.show_summary_checkbox.setChecked(True)
+        self.show_summary_checkbox.stateChanged.connect(self.update_panel_visibility)
+        controls_layout.addWidget(self.show_summary_checkbox)
+
+        self.show_metrics_checkbox = QCheckBox()
+        self.show_metrics_checkbox.setChecked(True)
+        self.show_metrics_checkbox.stateChanged.connect(self.update_panel_visibility)
+        controls_layout.addWidget(self.show_metrics_checkbox)
+
+        self.show_filters_checkbox = QCheckBox()
+        self.show_filters_checkbox.setChecked(True)
+        self.show_filters_checkbox.stateChanged.connect(self.update_panel_visibility)
+        controls_layout.addWidget(self.show_filters_checkbox)
+
+        self.maximize_chart_button = QPushButton()
+        self.maximize_chart_button.clicked.connect(self.toggle_chart_maximized)
+        controls_layout.addWidget(self.maximize_chart_button)
+
+        layout.addLayout(controls_layout)
 
         self.web_view = QWebEngineView()
-        layout.addWidget(self.web_view)
+        layout.addWidget(self.web_view, 1)
 
         central_widget.setLayout(layout)
 
+        self.chart_maximized = False
+
         self.apply_language()
         self.load_metric_chart()
+
+    def update_panel_visibility(self):
+        if getattr(self, "chart_maximized", False):
+            self.info_panel.setVisible(False)
+            self.metrics_panel.setVisible(False)
+            self.filters_panel.setVisible(False)
+            return
+
+        self.info_panel.setVisible(self.show_summary_checkbox.isChecked())
+        self.metrics_panel.setVisible(self.show_metrics_checkbox.isChecked())
+        self.filters_panel.setVisible(self.show_filters_checkbox.isChecked())
+
+    def toggle_chart_maximized(self):
+        self.chart_maximized = not getattr(self, "chart_maximized", False)
+
+        if self.chart_maximized:
+            self.info_panel.setVisible(False)
+            self.metrics_panel.setVisible(False)
+            self.filters_panel.setVisible(False)
+            self.show_summary_checkbox.setEnabled(False)
+            self.show_metrics_checkbox.setEnabled(False)
+            self.show_filters_checkbox.setEnabled(False)
+            self.maximize_chart_button.setText(self.t("restore_view"))
+        else:
+            self.show_summary_checkbox.setEnabled(True)
+            self.show_metrics_checkbox.setEnabled(True)
+            self.show_filters_checkbox.setEnabled(True)
+            self.maximize_chart_button.setText(self.t("maximize_chart"))
+            self.update_panel_visibility()
 
     def apply_language(self):
         self.setWindowTitle(f"{self.t('node')} {self.tf('details', 'Details')} - {self.serial_number}")
@@ -148,6 +244,39 @@ class NodeDetailWindow(QMainWindow):
             if self.t("show_advanced_trend_info") != "show_advanced_trend_info"
             else "Show advanced trend info"
         )
+
+        self.show_summary_checkbox.setText(self.t("show_summary"))
+        self.show_metrics_checkbox.setText(self.t("show_metrics"))
+        self.show_filters_checkbox.setText(self.t("show_filters"))
+        self.maximize_chart_button.setText(
+            self.t("restore_view") if getattr(self, "chart_maximized", False)
+            else self.t("maximize_chart")
+        )
+
+    def on_filter_changed(self, *args):
+        """
+        Update the chart automatically when the user changes date, metric,
+        or acquisition type. This replaces the need for the visible
+        'Apply Filter' button.
+        """
+        if getattr(self, "_syncing_dates", False):
+            return
+
+        self.load_metric_chart()
+
+    def set_date_range_from_external(self, start_qdate, end_qdate):
+        """
+        Helper for future synchronized date ranges between windows.
+        It is safe even if synchronization is not used.
+        """
+        self._syncing_dates = True
+        try:
+            self.start_date.setDate(start_qdate)
+            self.end_date.setDate(end_qdate)
+        finally:
+            self._syncing_dates = False
+
+        self.load_metric_chart()
 
     def parse_timestamps(self, df):
         df = df.copy()
@@ -186,24 +315,24 @@ class NodeDetailWindow(QMainWindow):
         return df
 
     def configure_date_range(self):
-        if self.records_df.empty:
+        min_timestamp, max_timestamp, record_count = get_record_date_range(self.serial_number)
+
+        if not min_timestamp or not max_timestamp:
             today = QDate.currentDate()
             self.start_date.setDate(today)
             self.end_date.setDate(today)
+            self.available_range_label.setText(self.t("no_records_found"))
             return
 
-        self.records_df = self.parse_timestamps(self.records_df)
+        min_date = pd.to_datetime(min_timestamp, errors="coerce")
+        max_date = pd.to_datetime(max_timestamp, errors="coerce")
 
-        valid_dates = self.records_df.dropna(subset=["timestamp"])
-
-        if valid_dates.empty:
+        if pd.isna(min_date) or pd.isna(max_date):
             today = QDate.currentDate()
             self.start_date.setDate(today)
             self.end_date.setDate(today)
+            self.available_range_label.setText(self.t("no_records_found"))
             return
-
-        min_date = valid_dates["timestamp"].min()
-        max_date = valid_dates["timestamp"].max()
 
         min_qdate = QDate(min_date.year, min_date.month, min_date.day)
         max_qdate = QDate(max_date.year, max_date.month, max_date.day)
@@ -220,7 +349,8 @@ class NodeDetailWindow(QMainWindow):
             f"{self.t('available_data')}: "
             f"{min_date.strftime('%d/%m/%Y %H:%M')} "
             f"{self.t('to')} "
-            f"{max_date.strftime('%d/%m/%Y %H:%M')}"
+            f"{max_date.strftime('%d/%m/%Y %H:%M')} | "
+            f"{self.t('records')}: {record_count}"
         )
 
     def get_metric_config(self):
@@ -408,7 +538,23 @@ class NodeDetailWindow(QMainWindow):
         )
 
     def load_metric_chart(self):
-        df = self.records_df.copy()
+        start_dt = pd.to_datetime(
+            self.start_date.date().toString("dd/MM/yyyy"),
+            format="%d/%m/%Y",
+            errors="coerce"
+        )
+
+        end_dt = pd.to_datetime(
+            self.end_date.date().toString("dd/MM/yyyy"),
+            format="%d/%m/%Y",
+            errors="coerce"
+        ) + pd.Timedelta(days=1)
+
+        df = get_records_by_serial(
+            self.serial_number,
+            start_time=start_dt.strftime("%Y-%m-%d %H:%M:%S"),
+            end_time=end_dt.strftime("%Y-%m-%d %H:%M:%S"),
+        )
 
         if df.empty:
             self.web_view.setHtml(f"<h3>{self.t('no_records_found')}</h3>")
@@ -445,24 +591,6 @@ class NodeDetailWindow(QMainWindow):
         df = df.sort_values(by="timestamp")
 
         selected_acq = self.acq_filter.currentData()
-
-        start_dt = pd.to_datetime(
-            self.start_date.date().toString("dd/MM/yyyy"),
-            format="%d/%m/%Y",
-            errors="coerce"
-        )
-
-        end_dt = pd.to_datetime(
-            self.end_date.date().toString("dd/MM/yyyy"),
-            format="%d/%m/%Y",
-            errors="coerce"
-        ) + pd.Timedelta(days=1)
-
-        df = df[
-            (df["timestamp"] >= start_dt)
-            &
-            (df["timestamp"] < end_dt)
-        ]
 
         if selected_acq != "All":
             df = df[df["acq_type"] == selected_acq]
