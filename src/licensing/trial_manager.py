@@ -1,9 +1,22 @@
 from datetime import datetime
 from pathlib import Path
 import sqlite3
+import os
+import sys
 
 
-DATABASE_PATH = Path("data") / "database" / "node_health.db"
+def get_app_base_path():
+    if getattr(sys, "frozen", False):
+        local_app_data = os.environ.get("LOCALAPPDATA")
+        if local_app_data:
+            return Path(local_app_data) / "NodeHealthAnalyzer"
+
+        return Path.home() / "AppData" / "Local" / "NodeHealthAnalyzer"
+
+    return Path(__file__).resolve().parents[2]
+
+
+DATABASE_PATH = get_app_base_path() / "data" / "database" / "node_health.db"
 
 TRIAL_DAYS = 30
 
@@ -195,3 +208,33 @@ class TrialManager:
             install_date_text,
             ""
         )
+    @staticmethod
+    def reset_trial():
+            conn = TrialManager.get_connection()
+            cursor = conn.cursor()
+
+            today = datetime.now().strftime("%Y-%m-%d")
+
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS license_info (
+                    id INTEGER PRIMARY KEY,
+                    install_date TEXT NOT NULL,
+                    last_execution_date TEXT
+                )
+            """)
+
+            cursor.execute("""
+                INSERT OR REPLACE INTO license_info (
+                    id,
+                    install_date,
+                    last_execution_date
+                )
+                VALUES (
+                    1,
+                    ?,
+                    ?
+                )
+            """, (today, today))
+
+            conn.commit()
+            conn.close()

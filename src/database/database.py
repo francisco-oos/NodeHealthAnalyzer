@@ -1,26 +1,33 @@
 from pathlib import Path
 import sqlite3
+import sys
 
 import pandas as pd
 
 
-DATABASE_PATH = Path("data") / "database" / "node_health.db"
+import os
+import sys
+from pathlib import Path
 
 
-def get_connection():
-    DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
+def get_app_base_path():
+    if getattr(sys, "frozen", False):
+        local_app_data = os.environ.get("LOCALAPPDATA")
+        if local_app_data:
+            return Path(local_app_data) / "NodeHealthAnalyzer"
 
-    conn = sqlite3.connect(
-        DATABASE_PATH,
-        timeout=30
-    )
+        return Path.home() / "AppData" / "Local" / "NodeHealthAnalyzer"
 
-    conn.execute("PRAGMA busy_timeout = 30000")
+    return Path(__file__).resolve().parents[2]
 
-    return conn
+
+DATABASE_PATH = get_app_base_path() / "data" / "database" / "node_health.db"
+
+
 DEFAULT_APP_SETTINGS = {
-    "optimal_voltage_mv": 4200,
-    "warning_voltage_mv": 3700,
+    "technical_optimal_voltage_mv": 4200,
+    "technical_critical_voltage_mv": 3600,
+    "warning_voltage_mv": 3800,
     "critical_voltage_mv": 3600,
     "optimal_temperature_c": 25,
     "warning_temperature_c": 45,
@@ -34,6 +41,14 @@ DEFAULT_APP_SETTINGS = {
     "battery_pack_wh": 50,
     "battery_cells": 4,
 }
+
+
+def get_connection():
+    DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(DATABASE_PATH, timeout=30)
+    conn.execute("PRAGMA busy_timeout = 30000")
+    return conn
+
 
 def initialize_database():
     conn = get_connection()
@@ -59,11 +74,11 @@ def initialize_database():
             FOREIGN KEY (node_id) REFERENCES nodes(id)
         )
     """)
+
     conn.commit()
     conn.close()
 
     initialize_settings_table()
-
 
 
 def clear_database():
@@ -145,34 +160,108 @@ def get_records_by_serial(serial_number):
         ORDER BY health_records.timestamp
     """
 
-    df = pd.read_sql_query(
-        query,
-        conn,
-        params=(serial_number,)
-    )
-
+    df = pd.read_sql_query(query, conn, params=(serial_number,))
     conn.close()
 
     return df
 
+
+def get_table_columns(cursor, table_name):
+    cursor.execute(f"PRAGMA table_info({table_name})")
+    return [row[1] for row in cursor.fetchall()]
+
+
+def add_column_if_missing(cursor, table_name, column_name, column_definition):
+    columns = get_table_columns(cursor, table_name)
+
+    if column_name not in columns:
+        cursor.execute(
+            f"ALTER TABLE {table_name} "
+            f"ADD COLUMN {column_name} {column_definition}"
+        )
+
+
+def migrate_settings_table(cursor):
+    columns = get_table_columns(cursor, "app_settings")
+
+    required_columns = {
+        "technical_optimal_voltage_mv": "REAL",
+        "technical_critical_voltage_mv": "REAL",
+        "warning_voltage_mv": "REAL",
+        "critical_voltage_mv": "REAL",
+        "optimal_temperature_c": "REAL",
+        "warning_temperature_c": "REAL",
+        "critical_temperature_c": "REAL",
+        "manufacturer_life_years": "REAL",
+        "replacement_alert_days": "INTEGER",
+        "minimum_valid_discharge_mv_day": "REAL",
+        "battery_model": "TEXT",
+        "battery_pack_voltage": "REAL",
+        "battery_pack_ah": "REAL",
+        "battery_pack_wh": "REAL",
+        "battery_cells": "INTEGER",
+    }
+
+    for column_name, column_definition in required_columns.items():
+        add_column_if_missing(
+            cursor,
+            "app_settings",
+            column_name,
+            column_definition
+        )
+
+    columns = get_table_columns(cursor, "app_settings")
+
+    if "optimal_voltage_mv" in columns:
+        cursor.execute("""
+            UPDATE app_settings
+            SET technical_optimal_voltage_mv =
+                COALESCE(
+                    technical_optimal_voltage_mv,
+                    optimal_voltage_mv,
+                    4200
+                )
+            WHERE id = 1
+        """)
+    else:
+        cursor.execute("""
+            UPDATE app_settings
+            SET technical_optimal_voltage_mv =
+                COALESCE(technical_optimal_voltage_mv, 4200)
+            WHERE id = 1
+        """)
+
+    cursor.execute("""
+        UPDATE app_settings
+        SET technical_critical_voltage_mv =
+            COALESCE(technical_critical_voltage_mv, critical_voltage_mv, 3600)
+        WHERE id = 1
+    """)
+
+    cursor.execute("""
+        UPDATE app_settings
+        SET warning_voltage_mv =
+            COALESCE(warning_voltage_mv, 3800)
+        WHERE id = 1
+    """)
+
+    cursor.execute("""
+        UPDATE app_settings
+        SET critical_voltage_mv =
+            COALESCE(critical_voltage_mv, 3600)
+        WHERE id = 1
+    """)
+
+
 def initialize_settings_table():
-    """
-    Creates application settings table.
-
-    This table stores operational thresholds used by
-    Battery Intelligence calculations.
-
-    Important:
-    clear_database() must NOT delete this table.
-    """
-
     conn = get_connection()
     cursor = conn.cursor()
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS app_settings (
             id INTEGER PRIMARY KEY,
-            optimal_voltage_mv REAL,
+            technical_optimal_voltage_mv REAL,
+            technical_critical_voltage_mv REAL,
             warning_voltage_mv REAL,
             critical_voltage_mv REAL,
             optimal_temperature_c REAL,
@@ -189,6 +278,8 @@ def initialize_settings_table():
         )
     """)
 
+    migrate_settings_table(cursor)
+
     cursor.execute("""
         SELECT COUNT(*)
         FROM app_settings
@@ -201,7 +292,8 @@ def initialize_settings_table():
         cursor.execute("""
             INSERT INTO app_settings (
                 id,
-                optimal_voltage_mv,
+                technical_optimal_voltage_mv,
+                technical_critical_voltage_mv,
                 warning_voltage_mv,
                 critical_voltage_mv,
                 optimal_temperature_c,
@@ -217,10 +309,11 @@ def initialize_settings_table():
                 battery_cells
             )
             VALUES (
-                1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
             )
         """, (
-            DEFAULT_APP_SETTINGS["optimal_voltage_mv"],
+            DEFAULT_APP_SETTINGS["technical_optimal_voltage_mv"],
+            DEFAULT_APP_SETTINGS["technical_critical_voltage_mv"],
             DEFAULT_APP_SETTINGS["warning_voltage_mv"],
             DEFAULT_APP_SETTINGS["critical_voltage_mv"],
             DEFAULT_APP_SETTINGS["optimal_temperature_c"],
@@ -241,11 +334,6 @@ def initialize_settings_table():
 
 
 def get_app_settings():
-    """
-    Returns application settings as dictionary.
-    If settings do not exist, creates default settings first.
-    """
-
     initialize_settings_table()
 
     conn = get_connection()
@@ -253,7 +341,8 @@ def get_app_settings():
 
     cursor.execute("""
         SELECT
-            optimal_voltage_mv,
+            technical_optimal_voltage_mv,
+            technical_critical_voltage_mv,
             warning_voltage_mv,
             critical_voltage_mv,
             optimal_temperature_c,
@@ -277,16 +366,10 @@ def get_app_settings():
     if row is None:
         return DEFAULT_APP_SETTINGS.copy()
 
-    keys = list(DEFAULT_APP_SETTINGS.keys())
-
-    return dict(zip(keys, row))
+    return dict(zip(DEFAULT_APP_SETTINGS.keys(), row))
 
 
 def save_app_settings(settings):
-    """
-    Saves user-defined operational thresholds.
-    """
-
     initialize_settings_table()
 
     conn = get_connection()
@@ -295,7 +378,8 @@ def save_app_settings(settings):
     cursor.execute("""
         UPDATE app_settings
         SET
-            optimal_voltage_mv = ?,
+            technical_optimal_voltage_mv = ?,
+            technical_critical_voltage_mv = ?,
             warning_voltage_mv = ?,
             critical_voltage_mv = ?,
             optimal_temperature_c = ?,
@@ -311,7 +395,8 @@ def save_app_settings(settings):
             battery_cells = ?
         WHERE id = 1
     """, (
-        settings.get("optimal_voltage_mv"),
+        settings.get("technical_optimal_voltage_mv"),
+        settings.get("technical_critical_voltage_mv"),
         settings.get("warning_voltage_mv"),
         settings.get("critical_voltage_mv"),
         settings.get("optimal_temperature_c"),
@@ -332,10 +417,4 @@ def save_app_settings(settings):
 
 
 def restore_default_app_settings():
-    """
-    Restores default Battery Intelligence settings.
-    """
-
-    save_app_settings(
-        DEFAULT_APP_SETTINGS.copy()
-    )
+    save_app_settings(DEFAULT_APP_SETTINGS.copy())

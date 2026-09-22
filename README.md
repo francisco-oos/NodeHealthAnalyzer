@@ -17,3 +17,14 @@ Características principales:
 • Compatibilidad multiplataforma (Windows/Linux)
 
 Desarrollado con Python, PySide6, Pandas, Plotly, SQLite y Scikit-Learn.
+
+## Configuración segura
+
+La contraseña que desbloquea los parámetros técnicos ya no se guarda en el código fuente. Defínela en el entorno antes de iniciar la aplicación:
+
+```powershell
+$env:NHA_ADMIN_PASSWORD = "coloca-aqui-tu-clave-local"
+python main.py
+```
+
+Si no se define, se usa `CHANGE_ME_NHA_ADMIN_PASSWORD` únicamente como placeholder de desarrollo. No debe utilizarse como contraseña real.
