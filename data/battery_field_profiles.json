@@ -1,0 +1,44 @@
+{
+    "Operativo normal": {
+        "rack_declared_charge": 90.0,
+        "optimal_min_charge": 90.0,
+        "warning_percent": 30.0,
+        "critical_percent": 20.0,
+        "bit_hour": 7,
+        "bit_minute": 15,
+        "gps_min_quality": 70.0,
+        "gps_max_minutes": 20.0,
+        "max_temperature_c": 45.0,
+        "expected_drop_percent_day": 3.0,
+        "accelerated_drop_factor": 2.0,
+        "ignore_zero_charge": true
+    },
+    "Conservador": {
+        "rack_declared_charge": 95,
+        "optimal_min_charge": 90,
+        "warning_percent": 40,
+        "critical_percent": 25,
+        "bit_hour": 7,
+        "bit_minute": 15,
+        "gps_min_quality": 70,
+        "gps_max_minutes": 15,
+        "max_temperature_c": 45,
+        "expected_drop_percent_day": 2.5,
+        "accelerated_drop_factor": 1.7,
+        "ignore_zero_charge": true
+    },
+    "Agresivo": {
+        "rack_declared_charge": 80,
+        "optimal_min_charge": 80,
+        "warning_percent": 25,
+        "critical_percent": 15,
+        "bit_hour": 7,
+        "bit_minute": 15,
+        "gps_min_quality": 60,
+        "gps_max_minutes": 30,
+        "max_temperature_c": 55,
+        "expected_drop_percent_day": 5.0,
+        "accelerated_drop_factor": 2.5,
+        "ignore_zero_charge": true
+    }
+}
