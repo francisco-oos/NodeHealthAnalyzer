@@ -14,6 +14,14 @@ venv/
 # Build
 build/
 dist/
+NodeHealthAnalyzer_v1_STABLE_BUILD/
+NodeHealthAnalyzer_v1.0.0_optimized.zip
+installer_output/
+*.exe
+*.zip
+__pycache__/
+*.pyc
+data/database/node_health.db
 
 # PyInstaller
 *.spec

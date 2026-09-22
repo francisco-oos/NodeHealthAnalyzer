@@ -1,26 +1,41 @@
+from src.database.database import get_app_settings
+
+
 def calculate_health_score(voltage, charge, gps_quality):
+    """
+    Calculates operational node health score.
+
+    Uses battery settings from database instead of fixed voltage values.
+    """
+
+    settings = get_app_settings()
+
+    warning_voltage = float(settings.get("warning_voltage_mv", 3700))
+    critical_voltage = float(settings.get("critical_voltage_mv", 3600))
+    optimal_voltage = float(settings.get("optimal_voltage_mv", 4200))
+
     score = 100
 
     try:
         voltage = float(voltage)
-    except:
+    except Exception:
         voltage = 0
 
     try:
         charge = float(charge)
-    except:
+    except Exception:
         charge = 0
 
     try:
         gps_quality = float(gps_quality)
-    except:
+    except Exception:
         gps_quality = 0
 
-    if voltage < 3800:
-        score -= 40
-    elif voltage < 3900:
-        score -= 25
-    elif voltage < 4000:
+    if voltage <= critical_voltage:
+        score -= 50
+    elif voltage <= warning_voltage:
+        score -= 30
+    elif voltage < optimal_voltage:
         score -= 10
 
     if charge < 40:
@@ -41,8 +56,10 @@ def calculate_health_score(voltage, charge, gps_quality):
 def classify_node(score):
     if score >= 85:
         return "Excellent"
+
     if score >= 70:
         return "Good"
+
     if score >= 50:
         return "Warning"
 

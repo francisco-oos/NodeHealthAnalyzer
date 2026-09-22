@@ -195,3 +195,33 @@ class TrialManager:
             install_date_text,
             ""
         )
+    @staticmethod
+    def reset_trial():
+            conn = TrialManager.get_connection()
+            cursor = conn.cursor()
+
+            today = datetime.now().strftime("%Y-%m-%d")
+
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS license_info (
+                    id INTEGER PRIMARY KEY,
+                    install_date TEXT NOT NULL,
+                    last_execution_date TEXT
+                )
+            """)
+
+            cursor.execute("""
+                INSERT OR REPLACE INTO license_info (
+                    id,
+                    install_date,
+                    last_execution_date
+                )
+                VALUES (
+                    1,
+                    ?,
+                    ?
+                )
+            """, (today, today))
+
+            conn.commit()
+            conn.close()
